@@ -550,14 +550,14 @@ export function WhatsAppConfig() {
       <div className="space-y-6">
         {/* Corrupted-token reset banner */}
         {showResetBanner && (
-          <Alert className="bg-amber-950/40 border-amber-600/40">
+          <Alert className="border-amber-200 bg-amber-50/80 text-amber-900 dark:border-amber-600/40 dark:bg-amber-950/40 dark:text-amber-200">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="size-5 text-amber-400 mt-0.5 shrink-0" />
+              <AlertTriangle className="size-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <div className="flex-1">
-                <AlertTitle className="text-amber-200 mb-1">
+                <AlertTitle className="text-amber-900 dark:text-amber-200 mb-1 font-medium">
                   {t('tokenCorrupted')}
                 </AlertTitle>
-                <AlertDescription className="text-amber-100/80 text-sm">
+                <AlertDescription className="text-amber-800/90 dark:text-amber-100/80 text-sm">
                   {statusMessage}
                 </AlertDescription>
                 <Button
@@ -585,12 +585,12 @@ export function WhatsAppConfig() {
 
         {/* Last save failed — why, which field, and what to quote to Meta */}
         {saveFailure && (
-          <Alert className="bg-red-950/30 border-red-700/50">
+          <Alert className="border-red-200 bg-red-50/80 text-red-900 dark:border-red-700/50 dark:bg-red-950/30 dark:text-red-200">
             <div className="flex items-start gap-3">
-              <XCircle className="size-5 text-red-400 mt-0.5 shrink-0" />
+              <XCircle className="size-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
-                <AlertTitle className="text-red-200 mb-1">{t('lastSaveFailed')}</AlertTitle>
-                <AlertDescription className="text-red-100/80 text-sm">
+                <AlertTitle className="text-red-900 dark:text-red-200 mb-1 font-medium">{t('lastSaveFailed')}</AlertTitle>
+                <AlertDescription className="text-red-800/90 dark:text-red-100/80 text-sm">
                   {saveFailure.message}
                 </AlertDescription>
                 {saveFailure.meta && renderMetaDetails(saveFailure.meta)}
@@ -645,20 +645,23 @@ export function WhatsAppConfig() {
           <Alert
             className={
               isRegistered
-                ? 'bg-emerald-950/30 border-emerald-700/50'
-                : 'bg-amber-950/30 border-amber-700/50'
+                ? 'border-emerald-200 bg-emerald-50/80 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-200'
+                : 'border-amber-200 bg-amber-50/80 text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200'
             }
           >
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 {isRegistered ? (
-                  <CheckCircle2 className="size-4 text-emerald-400" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
                 ) : (
-                  <AlertTriangle className="size-4 text-amber-400" />
+                  <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
                 )}
                 <AlertTitle
                   className={
-                    'mb-0 ' + (isRegistered ? 'text-emerald-200' : 'text-amber-200')
+                    'mb-0 font-medium ' +
+                    (isRegistered
+                      ? 'text-emerald-900 dark:text-emerald-200'
+                      : 'text-amber-900 dark:text-amber-200')
                   }
                 >
                   {isRegistered
@@ -671,7 +674,7 @@ export function WhatsAppConfig() {
                 size="sm"
                 onClick={handleVerifyRegistration}
                 disabled={verifyingRegistration}
-                className="border-border bg-transparent text-foreground hover:bg-muted h-7"
+                className="border-emerald-300/70 bg-white/80 text-emerald-950 hover:bg-emerald-100/70 dark:border-border dark:bg-transparent dark:text-foreground dark:hover:bg-muted h-7"
               >
                 {verifyingRegistration ? (
                   <Loader2 className="size-3.5 animate-spin" />
@@ -681,7 +684,7 @@ export function WhatsAppConfig() {
                 {t('verifyWithMeta')}
               </Button>
             </div>
-            <AlertDescription className="text-muted-foreground mt-2 text-xs leading-relaxed">
+            <AlertDescription className="mt-2 text-xs leading-relaxed text-emerald-800/80 dark:text-muted-foreground">
               {isRegistered ? (
                 <span
                   dangerouslySetInnerHTML={{

@@ -146,10 +146,10 @@ export function useTheme(): ThemeContextValue {
     // applied the right CSS attributes, so visually the page is fine.
     return {
       theme: DEFAULT_THEME,
-      setTheme: () => {},
+      setTheme: () => { },
       mode: DEFAULT_MODE,
-      setMode: () => {},
-      toggleMode: () => {},
+      setMode: () => { },
+      toggleMode: () => { },
     };
   }
   return ctx;

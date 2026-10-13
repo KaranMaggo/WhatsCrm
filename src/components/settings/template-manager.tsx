@@ -690,8 +690,8 @@ export function TemplateManager() {
           </DialogHeader>
 
           {form.category === 'Authentication' && (
-            <div className="flex items-start gap-2 rounded border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
-              <AlertCircle className="size-4 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-300">
+              <AlertCircle className="size-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
               <p>{t.rich('authWarning', { bold: (chunks) => <strong>{chunks}</strong> })}</p>
             </div>
           )}

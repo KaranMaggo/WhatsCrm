@@ -17,7 +17,7 @@
     "linkInvalid": "That link couldn’t be used to sign you in. If you were confirming your email, it may already be verified — just sign in below. For a password reset, request a new link and open it in the same browser you requested it from."
   },
   "Sidebar": {
-    "title": "WhatCrM",
+    "title": "WhatsCRM",
     "primaryNav": "Primary",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
@@ -2035,7 +2035,7 @@
     "titleJoin": "Create account & join",
     "title": "Create account",
     "descJoin": "Verify your email, then accept the invitation to join your team.",
-    "desc": "Get started with WhatCrM",
+    "desc": "Get started with WhatsCRM",
     "fullNameLabel": "Full name",
     "fullNamePlaceholder": "John Doe",
     "emailLabel": "Email",

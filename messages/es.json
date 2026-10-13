@@ -17,7 +17,7 @@
     "linkInvalid": "No se pudo iniciar sesión con ese enlace. Si estabas confirmando tu correo, es posible que ya esté verificado; inicia sesión abajo. Para restablecer la contraseña, pide un enlace nuevo y ábrelo en el mismo navegador desde el que lo solicitaste."
   },
   "Sidebar": {
-    "title": "WhatCrM",
+    "title": "WhatsCRM",
     "primaryNav": "Principal",
     "dashboard": "Panel",
     "inbox": "Bandeja de entrada",
@@ -2035,7 +2035,7 @@
     "titleJoin": "Crear cuenta y unirse",
     "title": "Crear cuenta",
     "descJoin": "Verifica tu correo y luego acepta la invitación para unirte a tu equipo.",
-    "desc": "Empieza a usar WhatCrM",
+    "desc": "Empieza a usar WhatsCRM",
     "fullNameLabel": "Nombre completo",
     "fullNamePlaceholder": "Juan Pérez",
     "emailLabel": "Correo electrónico",

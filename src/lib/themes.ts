@@ -15,6 +15,7 @@
 
 export const THEME_IDS = [
   "violet",
+  "cyan",
   "emerald",
   "cobalt",
   "amber",
@@ -72,6 +73,12 @@ export const THEMES: ReadonlyArray<ThemeMeta> = [
     name: "Violet",
     tagline: "The default — confident, slightly playful.",
     swatch: "oklch(0.526 0.247 293)",
+  },
+  {
+    id: "cyan",
+    name: "Cyan",
+    tagline: "Electric cyan & vibrant teal branding.",
+    swatch: "oklch(0.58 0.16 235)",
   },
   {
     id: "emerald",
