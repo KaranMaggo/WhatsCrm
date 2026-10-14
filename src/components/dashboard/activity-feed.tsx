@@ -47,8 +47,9 @@ export function ActivityFeed({ items, loading }: ActivityFeedProps) {
   // footer control when they want deeper history.
   const [pageSize, setPageSize] = useState<PageSize>(5)
 
-  const totalLoaded = items?.length ?? 0
-  const visible = items?.slice(0, pageSize) ?? []
+  const filteredItems = (items ?? []).filter((it) => it.kind !== 'deal' && it.kind !== 'broadcast')
+  const totalLoaded = filteredItems.length
+  const visible = filteredItems.slice(0, pageSize)
   // A size option is "useful" if picking it would reveal rows the
   // smaller option doesn't already show. With PAGE_SIZES=[5,10,20,50]:
   // "10" is useful only once we've loaded ≥6 items, "20" once ≥11, etc.
