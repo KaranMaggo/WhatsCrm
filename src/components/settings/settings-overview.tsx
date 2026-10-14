@@ -174,6 +174,11 @@ export function SettingsOverview({
       ),
     },
     {
+      section: 'hubspot',
+      loading: false,
+      subtitle: 'HubSpot CRM contact sync',
+    },
+    {
       section: 'members',
       loading: countsLoading,
       subtitle:

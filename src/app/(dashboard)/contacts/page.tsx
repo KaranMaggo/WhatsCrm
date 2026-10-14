@@ -49,6 +49,7 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  Share2,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -313,6 +314,29 @@ export default function ContactsPage() {
 
     setDeleting(false);
     setBulkDeleteOpen(false);
+  }
+
+  async function syncContactHubSpot(contact: Contact) {
+    if (!contact.email && !contact.phone) {
+      toast.error('Contact must have an email or phone number to sync with HubSpot.');
+      return;
+    }
+    toast.info('Syncing contact to HubSpot...');
+    try {
+      const res = await fetch('/api/integrations/hubspot/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId: contact.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'HubSpot sync failed');
+      }
+      const actionText = data.action === 'created' ? 'Created contact' : 'Updated contact';
+      toast.success(`HubSpot: ${actionText} (#${data.hubspotContactId})`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'HubSpot sync failed');
+    }
   }
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
@@ -672,6 +696,16 @@ export default function ContactsPage() {
                         >
                           <Pencil className="size-4" />
                           {t('editAction')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            syncContactHubSpot(contact);
+                          }}
+                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                        >
+                          <Share2 className="size-4 text-orange-500" />
+                          Sync to HubSpot
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-border" />
                         <DropdownMenuItem

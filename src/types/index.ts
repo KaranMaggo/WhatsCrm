@@ -707,3 +707,20 @@ export interface QuickReply {
   created_at: string;
   updated_at: string;
 }
+
+// ============================================================
+// HubSpot CRM integration
+// ============================================================
+
+export interface HubSpotConfig {
+  id?: string;
+  account_id: string;
+  portal_id?: string | null;
+  auto_sync_on_message: boolean;
+  auto_sync_contacts: boolean;
+  has_token: boolean;
+  is_env?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+

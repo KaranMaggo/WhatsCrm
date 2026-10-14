@@ -39,6 +39,7 @@ import {
   X,
   DollarSign,
   LayoutTemplate,
+  Share2,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { contactHandle } from '@/lib/whatsapp/wa-identity';
@@ -70,6 +71,7 @@ export function ContactDetailView({
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [syncingHubSpot, setSyncingHubSpot] = useState(false);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -378,6 +380,35 @@ export function ContactDetailView({
     }
   }
 
+  async function handleSyncToHubSpot() {
+    if (!contactId) return;
+    if (!contact?.email && !contact?.phone) {
+      toast.error('Contact must have an email or phone number to sync with HubSpot.');
+      return;
+    }
+
+    setSyncingHubSpot(true);
+    try {
+      const res = await fetch('/api/integrations/hubspot/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to sync with HubSpot');
+      }
+
+      const actionText = data.action === 'created' ? 'Created contact' : 'Updated contact';
+      toast.success(`HubSpot: ${actionText} (#${data.hubspotContactId})`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'HubSpot sync failed');
+    } finally {
+      setSyncingHubSpot(false);
+    }
+  }
+
   function getInitials(name?: string | null) {
     if (!name) return '?';
     return name
@@ -444,7 +475,7 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex items-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => setTemplatePickerOpen(true)}
@@ -457,6 +488,21 @@ export function ContactDetailView({
                     <LayoutTemplate className="size-4" />
                   )}
                   {t('sendTemplateBtn')}
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSyncToHubSpot}
+                  disabled={syncingHubSpot}
+                  className="gap-1.5"
+                >
+                  {syncingHubSpot ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Share2 className="size-4 text-orange-500" />
+                  )}
+                  Sync to HubSpot
                 </Button>
               </div>
             </SheetHeader>

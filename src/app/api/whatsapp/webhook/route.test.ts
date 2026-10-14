@@ -212,6 +212,14 @@ vi.mock('@supabase/supabase-js', () => ({
               }
             },
           }
+        case 'hubspot_configs':
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              }),
+            }),
+          }
         default:
           throw new Error(`unexpected table: ${table}`)
       }

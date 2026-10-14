@@ -22,6 +22,9 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { getHubSpotConfigForAccount } from '@/lib/integrations/hubspot-config'
+import { syncContactToHubSpot } from '@/lib/integrations/hubspot'
+import { recordHubSpotSyncLog } from '@/lib/integrations/hubspot-logs'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -1007,6 +1010,89 @@ async function processMessage(
     content_type: contentType,
     text: contentText,
   })
+
+  // Sync contact to HubSpot on inbound WhatsApp message
+  await syncInboundContactToHubSpot(accountId, contactRecord, inboundText)
+}
+
+/**
+ * Automatically sync contact to HubSpot when an inbound WhatsApp message is received.
+ *
+ * 1. Checks if HubSpot integration is configured and autoSyncOnMessage is enabled.
+ * 2. If contact does not have an email, checks if the message text contains an email address and backfills it.
+ * 3. Syncs the contact to HubSpot:
+ *    - First checks if contact's email already exists in HubSpot.
+ *    - If email exists -> updates the contact in HubSpot.
+ *    - If email does not exist -> creates the contact in HubSpot.
+ *    - If no email, checks/creates by phone.
+ *
+ * Never throws — errors are caught and logged so webhook delivery to Meta is unaffected.
+ */
+async function syncInboundContactToHubSpot(
+  accountId: string,
+  contact: ContactRow,
+  messageText: string | null
+) {
+  try {
+    const config = await getHubSpotConfigForAccount(supabaseAdmin(), accountId)
+    if (!config || !config.configured || !config.token) {
+      console.info(`[HubSpot Sync] Inbound message received, but HubSpot is not configured for account: ${accountId}`)
+      return
+    }
+    if (!config.autoSyncOnMessage) {
+      console.info(`[HubSpot Sync] Inbound message received, but autoSyncOnMessage is disabled for account: ${accountId}`)
+      return
+    }
+
+    let email = contact.email?.trim() || null
+
+    // Extract email from message body if contact has no email yet
+    if (!email && messageText) {
+      const emailMatch = messageText.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/)
+      if (emailMatch) {
+        email = emailMatch[0].toLowerCase()
+        // Backfill onto contact in database
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ email, updated_at: new Date().toISOString() })
+          .eq('id', contact.id)
+        contact.email = email
+      }
+    }
+
+    const result = await syncContactToHubSpot(config.token, {
+      email,
+      name: contact.name,
+      phone: contact.phone,
+      company: contact.company,
+    })
+
+    await recordHubSpotSyncLog(supabaseAdmin(), {
+      account_id: accountId,
+      contact_id: contact.id,
+      contact_name: contact.name,
+      email,
+      phone: contact.phone,
+      action: result.action,
+      hubspot_contact_id: result.hubspotContactId,
+      status: 'success',
+      source: 'whatsapp_message',
+    })
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Inbound sync failed'
+    console.error('[HubSpot Sync] Inbound contact sync error:', errorMsg)
+    await recordHubSpotSyncLog(supabaseAdmin(), {
+      account_id: accountId,
+      contact_id: contact.id,
+      contact_name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      action: 'failed',
+      status: 'error',
+      error_message: errorMsg,
+      source: 'whatsapp_message',
+    }).catch(() => {})
+  }
 }
 
 async function parseMessageContent(

@@ -206,6 +206,21 @@ export function ContactForm({
         }
       }
 
+      // Sync to HubSpot if configured (best-effort)
+      if (contactId && (email.trim() || phone.trim())) {
+        fetch('/api/integrations/hubspot/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contactId,
+            email: email.trim() || undefined,
+            name: name.trim() || undefined,
+            phone: phone.trim() || undefined,
+            company: company.trim() || undefined,
+          }),
+        }).catch((syncErr) => console.warn('[hubspot] Auto-sync on save error:', syncErr));
+      }
+
       toast.success(isEdit ? t('toastSuccessEdit') : t('toastSuccessAdd'));
       onOpenChange(false);
       onSaved();
