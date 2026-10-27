@@ -42,7 +42,14 @@ import {
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
+import { loadAiConfig } from "@/lib/ai/config";
+import { retrieveKnowledge } from "@/lib/ai/knowledge";
+import { buildSystemPrompt } from "@/lib/ai/defaults";
+import { generateReply } from "@/lib/ai/generate";
+import { logAiUsage } from "@/lib/ai/usage";
+import { buildConversationContext } from "@/lib/ai/context";
 import {
+  type AiReplyNodeConfig,
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
@@ -50,6 +57,7 @@ import {
   type FlowNodeRow,
   type FlowRow,
   type FlowRunRow,
+  type HandoffNodeConfig,
   type ParsedInbound,
   type SendButtonsNodeConfig,
   type SendListNodeConfig,
@@ -140,7 +148,8 @@ export function isAutoAdvancing(node_type: string): boolean {
     node_type === "send_message" ||
     node_type === "send_media" ||
     node_type === "condition" ||
-    node_type === "set_tag"
+    node_type === "set_tag" ||
+    node_type === "ai_reply"
   );
 }
 
@@ -481,7 +490,30 @@ async function executeHandoff(
   run: FlowRunRow,
   node: FlowNodeRow,
 ): Promise<void> {
-  const cfg = node.config as { assign_to?: string; note?: string };
+  const cfg = node.config as HandoffNodeConfig;
+  const isAi = cfg.target === "ai";
+
+  if (isAi) {
+    if (run.conversation_id) {
+      await db
+        .from("conversations")
+        .update({
+          ai_autoreply_disabled: false,
+          assigned_agent_id: null,
+          status: "open",
+          updated_at: new Date().toISOString(),
+          ...(cfg.note ? { ai_handoff_summary: cfg.note } : {}),
+        })
+        .eq("id", run.conversation_id);
+    }
+    await logEvent(db, run.id, "handoff", node.node_key, {
+      target: "ai",
+      note: cfg.note ?? null,
+    });
+    await endRun(db, run.id, "handed_off", "handoff_ai");
+    return;
+  }
+
   const convUpdate: Record<string, unknown> = {
     status: "pending",
     updated_at: new Date().toISOString(),
@@ -494,10 +526,110 @@ async function executeHandoff(
       .eq("id", run.conversation_id);
   }
   await logEvent(db, run.id, "handoff", node.node_key, {
+    target: "human",
     note: cfg.note ?? null,
     assigned_to: cfg.assign_to ?? null,
   });
   await endRun(db, run.id, "handed_off", "handoff_node");
+}
+
+async function executeAiReply(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  cfg: AiReplyNodeConfig,
+): Promise<void> {
+  let query = "";
+  if (cfg.input_source === "var" && cfg.var_key) {
+    query = String(run.vars[cfg.var_key] ?? "").trim();
+  } else if (cfg.input_source === "custom" && cfg.custom_query) {
+    query = interpolateVars(cfg.custom_query, run.vars).trim();
+  } else if (run.conversation_id) {
+    const { data: lastMsg } = await db
+      .from("messages")
+      .select("content, text")
+      .eq("conversation_id", run.conversation_id)
+      .eq("direction", "inbound")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const content = lastMsg?.content as Record<string, unknown> | null;
+    query = (
+      lastMsg?.text ||
+      (typeof content?.text === "string" ? content.text : "") ||
+      ""
+    ).trim();
+  }
+
+  const aiConfig = await loadAiConfig(db, run.account_id);
+  if (!aiConfig || !aiConfig.isActive) {
+    throw new Error("AI Assistant is not active or configured for this workspace");
+  }
+
+  const knowledge = await retrieveKnowledge(
+    db,
+    run.account_id,
+    aiConfig,
+    query || "Customer inquiry",
+  );
+
+  const userPrompt = cfg.prompt?.trim() || aiConfig.systemPrompt;
+  const systemPrompt = buildSystemPrompt({
+    userPrompt,
+    mode: "auto_reply",
+    knowledge,
+  });
+
+  const messages = run.conversation_id
+    ? await buildConversationContext(db, run.conversation_id)
+    : [];
+
+  if (query && (messages.length === 0 || messages[messages.length - 1].content !== query)) {
+    messages.push({ role: "user", content: query });
+  }
+
+  const { text, usage } = await generateReply({
+    config: aiConfig,
+    systemPrompt,
+    messages,
+  });
+
+  if (!text || !text.trim()) {
+    throw new Error("AI returned empty reply");
+  }
+
+  const replyText = text.trim();
+
+  if (cfg.store_reply_var && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(cfg.store_reply_var)) {
+    run.vars[cfg.store_reply_var] = replyText;
+    await db
+      .from("flow_runs")
+      .update({ vars: run.vars })
+      .eq("id", run.id);
+  }
+
+  const { whatsapp_message_id } = await engineSendText({
+    accountId: run.account_id,
+    userId: run.user_id,
+    conversationId: run.conversation_id!,
+    contactId: run.contact_id!,
+    text: replyText,
+  });
+
+  void logAiUsage(db, {
+    accountId: run.account_id,
+    conversationId: run.conversation_id!,
+    mode: "auto_reply",
+    provider: aiConfig.provider,
+    model: aiConfig.model,
+    usage,
+  });
+
+  await logEvent(db, run.id, "message_sent", node.node_key, {
+    whatsapp_message_id,
+    text: replyText,
+    tokens: usage?.totalTokens ?? 0,
+  });
 }
 
 /**
@@ -854,6 +986,37 @@ async function advanceFromNodeKey(
         });
       }
       return { outcome: "advanced" };
+    }
+    if (node.node_type === "ai_reply") {
+      const cfg = node.config as unknown as AiReplyNodeConfig;
+      try {
+        await executeAiReply(db, run, node, cfg);
+      } catch (err) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "ai_reply_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        if (cfg.fallback_text?.trim()) {
+          try {
+            const fallbackBody = interpolateVars(cfg.fallback_text, run.vars);
+            await engineSendText({
+              accountId: run.account_id,
+              userId: run.user_id,
+              conversationId: run.conversation_id!,
+              contactId: run.contact_id!,
+              text: fallbackBody,
+            });
+            await logEvent(db, run.id, "message_sent", node.node_key, {
+              text: fallbackBody,
+              is_fallback: true,
+            });
+          } catch (fallbackErr) {
+            console.error("[flows] ai_reply fallback send failed:", fallbackErr);
+          }
+        }
+      }
+      currentKey = cfg.next_node_key;
+      continue;
     }
     if (node.node_type === "handoff") {
       await executeHandoff(db, run, node);

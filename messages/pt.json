@@ -1313,7 +1313,23 @@
         "uploadFailed": "Falha no upload.",
         "fileTooLarge": "O arquivo tem {size} MB — o limite é 16 MB.",
         "defaultOptionTitle": "Opção",
-        "optionN": "Opção {n}"
+        "optionN": "Opção {n}",
+        "aiInputSourceLabel": "Origem da pergunta do cliente",
+        "aiSourceLastMessage": "Última mensagem do cliente (padrão)",
+        "aiSourceVar": "Variável capturada do fluxo",
+        "aiSourceCustom": "Modelo de consulta personalizada",
+        "aiVarKeyHelp": "Nome da variável que contém a pergunta do cliente.",
+        "aiCustomQueryLabel": "Consulta personalizada (suporta {{vars.name}})",
+        "aiPromptLabel": "Instruções / prompt de IA (opcional)",
+        "aiPromptHelp": "Sobrescreve o prompt do sistema da conta para esta etapa.",
+        "aiStoreVarLabel": "Salvar resposta da IA em variável (opcional)",
+        "aiStoreVarHelp": "Salva o texto gerado em flow_runs.vars para etapas posteriores.",
+        "aiFallbackLabel": "Texto alternativo (opcional)",
+        "handoffTargetLabel": "Transferir conversa para",
+        "handoffHuman": "Atendente humano",
+        "handoffAi": "Assistente de IA",
+        "handoffAiTitle": "Resposta automática de IA",
+        "handoffAiHelp": "Ao alcançar este nó, o fluxo termina e o assistente de IA assume a conversa para responder automaticamente usando a base de conhecimento."
       },
       "categories": {
         "messaging": "Mensagens",
@@ -1355,7 +1371,11 @@
         },
         "handoff": {
           "label": "Transferir para agente",
-          "blurb": "Passa a conversa para um humano"
+          "blurb": "Passa a conversa para um humano ou IA"
+        },
+        "ai_reply": {
+          "label": "Resposta de IA",
+          "blurb": "Responde com IA usando sua base de conhecimento"
         },
         "end": {
           "label": "Fim",
@@ -2429,6 +2449,9 @@
       "setTagNeedsTag": "O nó Marcar contato precisa de uma tag para aplicar.",
       "setTagNeedsNext": "O nó Marcar contato precisa apontar para um próximo nó.",
       "setTagMissingNext": "O nó Marcar contato aponta para um nó inexistente: \"{key}\".",
+      "aiReplyNeedsNext": "O nó de resposta de IA precisa apontar para um próximo nó.",
+      "aiReplyMissingNext": "O nó de resposta de IA aponta para um nó inexistente: \"{key}\".",
+      "aiReplyNeedsVarKey": "O nó de resposta de IA com origem de variável precisa de uma var_key.",
       "unknownNodeType": "Tipo de nó desconhecido: \"{type}\"."
     },
     "automations": {

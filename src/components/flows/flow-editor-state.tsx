@@ -187,7 +187,17 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
     case "set_tag":
       return { mode: "add", tag_id: "", next_node_key: "" };
     case "handoff":
-      return { note: "" };
+      return { target: "human", note: "" };
+    case "ai_reply":
+      return {
+        prompt: "",
+        input_source: "last_message",
+        var_key: "",
+        custom_query: "",
+        store_reply_var: "",
+        fallback_text: "",
+        next_node_key: "",
+      };
     case "end":
       return {};
   }

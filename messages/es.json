@@ -1313,7 +1313,23 @@
         "uploadFailed": "Error al subir.",
         "fileTooLarge": "El archivo pesa {size} MB; el límite es 16 MB.",
         "defaultOptionTitle": "Opción",
-        "optionN": "Opción {n}"
+        "optionN": "Opción {n}",
+        "aiInputSourceLabel": "Origen de la consulta",
+        "aiSourceLastMessage": "Último mensaje del cliente (predeterminado)",
+        "aiSourceVar": "Variable capturada del flujo",
+        "aiSourceCustom": "Plantilla de consulta personalizada",
+        "aiVarKeyHelp": "Nombre de la variable que contiene la pregunta del cliente.",
+        "aiCustomQueryLabel": "Consulta personalizada (admite {{vars.name}})",
+        "aiPromptLabel": "Instrucciones / prompt de IA (opcional)",
+        "aiPromptHelp": "Invalida el prompt del sistema del espacio de trabajo para este paso.",
+        "aiStoreVarLabel": "Guardar respuesta de IA en variable (opcional)",
+        "aiStoreVarHelp": "Guarda el texto generado en flow_runs.vars para su uso en nodos posteriores.",
+        "aiFallbackLabel": "Texto de respaldo (opcional)",
+        "handoffTargetLabel": "Transferir conversación a",
+        "handoffHuman": "Agente humano",
+        "handoffAi": "Asistente de IA",
+        "handoffAiTitle": "Respuesta automática de IA",
+        "handoffAiHelp": "Al llegar aquí, el flujo finaliza y el asistente de IA asume la conversación para responder automáticamente usando la base de conocimiento."
       },
       "categories": {
         "messaging": "Mensajería",
@@ -1355,7 +1371,11 @@
         },
         "handoff": {
           "label": "Transferir a agente",
-          "blurb": "Pasa la conversación a una persona"
+          "blurb": "Pasa la conversación a una persona o IA"
+        },
+        "ai_reply": {
+          "label": "Respuesta de IA",
+          "blurb": "Responde con IA usando tu base de conocimiento"
         },
         "end": {
           "label": "Fin",
@@ -2429,6 +2449,9 @@
       "setTagNeedsTag": "El nodo Etiquetar contacto necesita una etiqueta para aplicar.",
       "setTagNeedsNext": "El nodo Etiquetar contacto debe apuntar a un nodo siguiente.",
       "setTagMissingNext": "El nodo Etiquetar contacto apunta a un nodo inexistente: \"{key}\".",
+      "aiReplyNeedsNext": "El nodo de respuesta de IA debe apuntar a un nodo siguiente.",
+      "aiReplyMissingNext": "El nodo de respuesta de IA apunta a un nodo inexistente: \"{key}\".",
+      "aiReplyNeedsVarKey": "El nodo de respuesta de IA con origen de variable requiere una var_key.",
       "unknownNodeType": "Tipo de nodo desconocido: \"{type}\"."
     },
     "automations": {

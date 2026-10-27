@@ -17,6 +17,7 @@
  */
 
 import {
+  Bot,
   Flag,
   GitFork,
   Inbox,
@@ -50,7 +51,8 @@ export type NodeType =
   | 'condition'
   | 'set_tag'
   | 'handoff'
-  | 'end';
+  | 'end'
+  | 'ai_reply';
 
 export interface BuilderNode {
   node_key: string;
@@ -151,6 +153,12 @@ export const NODE_META: Record<
     color: 'text-amber-400',
     category: 'flow',
   },
+  ai_reply: {
+    slugSeed: 'AI response',
+    icon: Bot,
+    color: 'text-purple-400',
+    category: 'messaging',
+  },
   end: {
     slugSeed: 'End',
     icon: Flag,
@@ -197,6 +205,7 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
   handoff: { l: 0.65, c: 0.17, h: 16 }, // rose — hands off
   end: { l: 0.55, c: 0.01, h: 260 }, // neutral grey — terminal
+  ai_reply: { l: 0.65, c: 0.22, h: 305 }, // purple/violet — AI smarts
 };
 
 export interface NodeColors {
@@ -410,9 +419,19 @@ export function summarizeNode(
         ? t ? t('tagPicked', { mode, tag: tagId.slice(0, 8) }) : `${mode} tag ${tagId.slice(0, 8)}…`
         : t ? t('tagNone', { mode }) : `${mode} tag (none picked)`;
     }
+    case 'ai_reply': {
+      const prompt = typeof cfg.prompt === 'string' ? cfg.prompt : '';
+      const storeVar = typeof cfg.store_reply_var === 'string' ? cfg.store_reply_var : '';
+      if (prompt.length > 0) {
+        return storeVar ? `${truncate(prompt, 40)} → vars.${storeVar}` : truncate(prompt, 60);
+      }
+      return storeVar ? `AI response → vars.${storeVar}` : 'AI response';
+    }
     case 'handoff': {
+      const isAi = cfg.target === 'ai';
+      const target = isAi ? 'AI Assistant' : 'Human agent';
       const note = typeof cfg.note === 'string' ? cfg.note : '';
-      return note.length > 0 ? truncate(note) : null;
+      return note.length > 0 ? `${target}: ${truncate(note, 40)}` : target;
     }
   }
 }

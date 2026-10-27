@@ -1313,7 +1313,23 @@
         "uploadFailed": "Upload failed.",
         "fileTooLarge": "File is {size} MB — limit is 16 MB.",
         "defaultOptionTitle": "Option",
-        "optionN": "Option {n}"
+        "optionN": "Option {n}",
+        "aiInputSourceLabel": "Customer inquiry source",
+        "aiSourceLastMessage": "Latest customer message (default)",
+        "aiSourceVar": "Captured variable from flow",
+        "aiSourceCustom": "Custom query template",
+        "aiVarKeyHelp": "The variable name containing the customer question.",
+        "aiCustomQueryLabel": "Custom query (supports {{vars.name}})",
+        "aiPromptLabel": "Custom AI prompt / instructions (optional)",
+        "aiPromptHelp": "Overrides the workspace system prompt for this step if provided.",
+        "aiStoreVarLabel": "Store AI reply in variable (optional)",
+        "aiStoreVarHelp": "Stores the generated text in flow_runs.vars so downstream nodes can use it.",
+        "aiFallbackLabel": "Fallback text (optional)",
+        "handoffTargetLabel": "Hand off conversation to",
+        "handoffHuman": "Human agent",
+        "handoffAi": "AI Assistant",
+        "handoffAiTitle": "AI Auto-responder",
+        "handoffAiHelp": "When reached, the flow ends and the AI Assistant takes over this conversation to automatically reply to future inbound messages using your knowledge base."
       },
       "categories": {
         "messaging": "Messaging",
@@ -1355,7 +1371,11 @@
         },
         "handoff": {
           "label": "Handoff to agent",
-          "blurb": "Hands the conversation to a human"
+          "blurb": "Hands the conversation to a human or AI"
+        },
+        "ai_reply": {
+          "label": "AI response",
+          "blurb": "Answers with AI using your knowledge base"
         },
         "end": {
           "label": "End",
@@ -2429,6 +2449,9 @@
       "setTagNeedsTag": "Set-tag needs a tag to apply.",
       "setTagNeedsNext": "Set-tag must point to a next node.",
       "setTagMissingNext": "Set-tag points to non-existent node \"{key}\".",
+      "aiReplyNeedsNext": "AI response node must point to a next node.",
+      "aiReplyMissingNext": "AI response node points to non-existent node \"{key}\".",
+      "aiReplyNeedsVarKey": "AI response node with variable source needs a var_key.",
       "unknownNodeType": "Unknown node type \"{type}\"."
     },
     "automations": {

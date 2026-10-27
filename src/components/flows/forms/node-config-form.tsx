@@ -196,15 +196,55 @@ export function NodeConfigForm({
         />
       );
 
-    case "handoff":
+    case "ai_reply":
       return (
-        <TextRow
-          label={t("internalNote")}
-          value={(cfg as { note?: string }).note ?? ""}
-          onChange={(v) => onUpdateConfig({ note: v })}
-          rows={2}
+        <AiReplyForm
+          cfg={cfg as AiReplyCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          t={t}
         />
       );
+
+    case "handoff": {
+      const isAi = (cfg as { target?: string }).target === "ai";
+      return (
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t("handoffTargetLabel")}
+            </label>
+            <Select
+              value={isAi ? "ai" : "human"}
+              onValueChange={(v) => onUpdateConfig({ target: v })}
+            >
+              <SelectTrigger className="bg-muted text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="human">{t("handoffHuman")}</SelectItem>
+                <SelectItem value="ai">{t("handoffAi")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {isAi && (
+            <div className="rounded-md border border-purple-500/20 bg-purple-500/5 p-2.5 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">{t("handoffAiTitle")}</p>
+              <p className="mt-1 text-[11px] leading-relaxed">
+                {t("handoffAiHelp")}
+              </p>
+            </div>
+          )}
+          <TextRow
+            label={t("internalNote")}
+            value={(cfg as { note?: string }).note ?? ""}
+            onChange={(v) => onUpdateConfig({ note: v })}
+            rows={2}
+          />
+        </div>
+      );
+    }
 
     case "end":
       return (
@@ -1061,5 +1101,136 @@ function SendMediaForm({
         label={t("advanceAfterSending")}
       />
     </>
+  );
+}
+
+// ============================================================
+// ai_reply
+// ============================================================
+
+interface AiReplyCfg {
+  prompt?: string;
+  input_source?: "last_message" | "var" | "custom";
+  var_key?: string;
+  custom_query?: string;
+  store_reply_var?: string;
+  fallback_text?: string;
+  next_node_key?: string;
+}
+
+function AiReplyForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  t,
+}: {
+  cfg: AiReplyCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const inputSource = cfg.input_source ?? "last_message";
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="mb-1 block text-xs text-muted-foreground">
+          {t("aiInputSourceLabel")}
+        </label>
+        <Select
+          value={inputSource}
+          onValueChange={(v) =>
+            onUpdateConfig({ input_source: v as "last_message" | "var" | "custom" })
+          }
+        >
+          <SelectTrigger className="bg-muted text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="last_message">{t("aiSourceLastMessage")}</SelectItem>
+            <SelectItem value="var">{t("aiSourceVar")}</SelectItem>
+            <SelectItem value="custom">{t("aiSourceCustom")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {inputSource === "var" && (
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">
+            {t("varKeyLabel")}
+          </label>
+          <Input
+            value={cfg.var_key ?? ""}
+            onChange={(e) =>
+              onUpdateConfig({
+                var_key: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+              })
+            }
+            placeholder={t("varKeyPlaceholder")}
+            className="bg-muted font-mono text-xs"
+          />
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {t("aiVarKeyHelp")}
+          </p>
+        </div>
+      )}
+
+      {inputSource === "custom" && (
+        <TextRow
+          label={t.raw("aiCustomQueryLabel")}
+          value={cfg.custom_query ?? ""}
+          onChange={(v) => onUpdateConfig({ custom_query: v })}
+          rows={2}
+        />
+      )}
+
+      <div>
+        <TextRow
+          label={t("aiPromptLabel")}
+          value={cfg.prompt ?? ""}
+          onChange={(v) => onUpdateConfig({ prompt: v })}
+          rows={3}
+        />
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {t("aiPromptHelp")}
+        </p>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs text-muted-foreground">
+          {t("aiStoreVarLabel")}
+        </label>
+        <Input
+          value={cfg.store_reply_var ?? ""}
+          onChange={(e) =>
+            onUpdateConfig({
+              store_reply_var: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+            })
+          }
+          placeholder="e.g. ai_reply"
+          className="bg-muted font-mono text-xs"
+        />
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {t("aiStoreVarHelp")}
+        </p>
+      </div>
+
+      <TextRow
+        label={t("aiFallbackLabel")}
+        value={cfg.fallback_text ?? ""}
+        onChange={(v) => onUpdateConfig({ fallback_text: v })}
+        rows={2}
+      />
+
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label={t("advanceAfterSending")}
+      />
+    </div>
   );
 }

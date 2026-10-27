@@ -20,6 +20,7 @@
  */
 
 import type {
+  AiReplyNodeConfig,
   CollectInputNodeConfig,
   ConditionNodeConfig,
   HandoffNodeConfig,
@@ -40,7 +41,8 @@ export type FlowTemplateNodeType =
   | "condition"
   | "set_tag"
   | "handoff"
-  | "end";
+  | "end"
+  | "ai_reply";
 
 export interface FlowTemplateNode {
   node_key: string;
@@ -53,6 +55,7 @@ export interface FlowTemplateNode {
     | CollectInputNodeConfig
     | ConditionNodeConfig
     | HandoffNodeConfig
+    | AiReplyNodeConfig
     | Record<string, unknown>;
 }
 

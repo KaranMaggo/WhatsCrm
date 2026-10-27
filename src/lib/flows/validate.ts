@@ -721,6 +721,55 @@ function validateNode(
       // beyond their existence.
       break;
 
+    case "ai_reply": {
+      const cfg = node.config as {
+        next_node_key?: string;
+        input_source?: string;
+        var_key?: string;
+        store_reply_var?: string;
+      };
+      if (cfg.input_source === "var" && !cfg.var_key?.trim()) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "var_key",
+          message: t("aiReplyNeedsVarKey"),
+        });
+      }
+      if (
+        cfg.store_reply_var &&
+        cfg.store_reply_var.trim() &&
+        !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(cfg.store_reply_var.trim())
+      ) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "store_reply_var",
+          message: t("invalidVarKey", { key: cfg.store_reply_var }),
+        });
+      }
+      if (!cfg.next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: t("aiReplyNeedsNext"),
+        });
+      } else if (!knownKeys.has(cfg.next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: t("aiReplyMissingNext", { key: cfg.next_node_key }),
+        });
+      }
+      break;
+    }
+
     default:
       issues.push({
         severity: "error",
@@ -765,7 +814,8 @@ function outgoingEdges(node: NodeInput): string[] {
     case "send_message":
     case "send_media":
     case "collect_input":
-    case "set_tag": {
+    case "set_tag":
+    case "ai_reply": {
       const cfg = node.config as { next_node_key?: string };
       return cfg.next_node_key ? [cfg.next_node_key] : [];
     }

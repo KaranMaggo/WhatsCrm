@@ -105,6 +105,37 @@ export interface HandoffNodeConfig {
    * node fires. Leave unset to flip the status without assignment.
    */
   assign_to?: string;
+  /**
+   * Target for handoff:
+   * - 'human' (default): Hands off to a human agent, setting status to 'pending'.
+   * - 'ai': Hands off to the AI Assistant. Unassigns human agents and enables AI auto-reply.
+   */
+  target?: "human" | "ai";
+}
+
+export interface AiReplyNodeConfig {
+  /**
+   * Optional prompt or persona override for the AI.
+   * If omitted, uses the workspace's default system prompt.
+   */
+  prompt?: string;
+  /**
+   * Source of user query:
+   * - 'last_message' (default): Uses the most recent customer message in conversation.
+   * - 'var': Reads from captured flow_runs.vars[var_key].
+   * - 'custom': Custom query text with {{vars.xyz}} interpolation.
+   */
+  input_source?: "last_message" | "var" | "custom";
+  /** Variable name when input_source is 'var'. */
+  var_key?: string;
+  /** Custom template when input_source is 'custom'. */
+  custom_query?: string;
+  /** Optional var_key to store the generated AI reply in flow_runs.vars. */
+  store_reply_var?: string;
+  /** Optional fallback text sent if AI fails or is unconfigured. */
+  fallback_text?: string;
+  /** Node to advance to after the reply is sent. */
+  next_node_key: string;
 }
 
 /**
@@ -153,7 +184,7 @@ export interface ConditionNodeConfig {
   subject: ConditionSubject;
   /**
    * For `var`: the key in flow_runs.vars.
-   * For `tag`: the tag UUID (matched against contact_tags).
+  * For `tag`: the tag UUID (matched against contact_tags).
    * For `contact_field`: one of 'name' | 'email' | 'phone' | 'company'.
    */
   subject_key: string;
@@ -194,7 +225,8 @@ export type FlowNodeConfig =
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
   | { node_type: "handoff"; config: HandoffNodeConfig }
-  | { node_type: "end"; config: EndNodeConfig };
+  | { node_type: "end"; config: EndNodeConfig }
+  | { node_type: "ai_reply"; config: AiReplyNodeConfig };
 
 export type FlowNodeType = FlowNodeConfig["node_type"];
 
