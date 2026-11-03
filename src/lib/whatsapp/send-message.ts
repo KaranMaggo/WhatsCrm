@@ -537,5 +537,18 @@ export async function sendMessageToConversation(
     );
   }
 
+  // Best-effort sync to HubSpot timeline if integration is configured
+  try {
+    const { syncConversationChatToHubSpot } = await import('@/lib/integrations/hubspot');
+    void syncConversationChatToHubSpot({
+      supabase: db,
+      accountId,
+      conversationId,
+      singleMessageId: messageRecord.id,
+    }).catch((err) => console.warn('[hubspot] outbound sync failed:', err));
+  } catch (syncErr) {
+    console.warn('[hubspot] outbound sync threw:', syncErr);
+  }
+
   return { messageId: messageRecord.id, whatsappMessageId: waMessageId };
 }

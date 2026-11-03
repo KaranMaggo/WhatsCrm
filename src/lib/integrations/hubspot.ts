@@ -1,12 +1,7 @@
-/**
- * HubSpot CRM API v3 Client
- *
- * Implements contact synchronization:
- * - First checks if contact email already exists in HubSpot
- * - If email exists -> updates the contact with latest details
- * - If email does not exist -> creates the contact in HubSpot
- * - Supports fallback search by phone when email is absent
- */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getHubSpotConfigForAccount } from './hubspot-config';
+import { recordHubSpotSyncLog } from './hubspot-logs';
+
 
 export interface HubSpotContactProperties {
   email?: string;
@@ -37,6 +32,23 @@ export interface HubSpotSyncResult {
   hubspotContactId: string;
   email?: string | null;
   properties: HubSpotContactProperties;
+}
+
+export interface SyncConversationChatOptions {
+  supabase?: SupabaseClient | null;
+  accountId: string;
+  conversationId: string;
+  token?: string | null;
+  singleMessageId?: string;
+  syncAllMessages?: boolean;
+}
+
+export interface SyncConversationChatResult {
+  ok: boolean;
+  hubspotContactId?: string;
+  noteCreated: boolean;
+  messagesSyncedCount: number;
+  error?: string;
 }
 
 const HUBSPOT_BASE_URL = 'https://api.hubapi.com';
@@ -405,3 +417,468 @@ export async function syncContactToHubSpot(
 
   throw new Error('Unable to sync contact to HubSpot.');
 }
+
+/**
+ * Generate deep-link to the conversation chat in WhatsCrm.
+ * Formats as: https://whats-crm-three.vercel.app/chat?conversation_id={conversation_id}
+ */
+export function getHubSpotChatDeepLink(conversationId: string): string {
+  const envUrl = process.env.HUBSPOT_CHAT_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL;
+  const baseUrl = envUrl && !envUrl.includes('example.com')
+    ? envUrl.replace(/\/$/, '')
+    : 'https://whats-crm-three.vercel.app';
+  return `${baseUrl}/chat?conversation_id=${encodeURIComponent(conversationId)}`;
+}
+
+/**
+ * Create a Note on a HubSpot Contact.
+ *
+ * Uses HubSpot CRM v3 endpoint:
+ * POST /crm/v3/objects/notes
+ * with association type 202 (note to contact).
+ */
+export async function createHubSpotNote(
+  token: string,
+  hubspotContactId: string,
+  noteBody: string,
+  timestamp?: string
+): Promise<{ id: string } | null> {
+  if (!token?.trim() || !hubspotContactId?.trim()) return null;
+
+  try {
+    const res = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/notes`, {
+      method: 'POST',
+      headers: getHeaders(token),
+      body: JSON.stringify({
+        properties: {
+          hs_timestamp: timestamp || new Date().toISOString(),
+          hs_note_body: noteBody,
+        },
+        associations: [
+          {
+            to: { id: hubspotContactId },
+            types: [
+              {
+                associationCategory: 'HUBSPOT_DEFINED',
+                associationTypeId: 202,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (res.status === 201) {
+      const data = await res.json();
+      return { id: String(data.id) };
+    }
+
+    const err = await res.json().catch(() => null);
+    console.warn('[hubspot] createHubSpotNote error:', res.status, err?.message || err);
+    return null;
+  } catch (err) {
+    console.error('[hubspot] createHubSpotNote network error:', err);
+    return null;
+  }
+}
+
+/**
+ * Log a WhatsApp message to a HubSpot Contact's activity timeline.
+ *
+ * Uses HubSpot CRM v3 endpoint:
+ * POST /crm/v3/objects/communications
+ * with:
+ * - hs_communication_channel_type: 'WHATS_APP'
+ * - hs_communication_logged_from: 'CRM'
+ * - hs_communication_body: message text with sender prefix
+ * - association type 81 (communication to contact).
+ */
+export async function logHubSpotWhatsAppMessage(
+  token: string,
+  hubspotContactId: string,
+  options: {
+    body: string;
+    timestamp?: string;
+  }
+): Promise<{ id: string } | null> {
+  if (!token?.trim() || !hubspotContactId?.trim() || !options.body?.trim()) return null;
+
+  try {
+    const res = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/communications`, {
+      method: 'POST',
+      headers: getHeaders(token),
+      body: JSON.stringify({
+        properties: {
+          hs_communication_channel_type: 'WHATS_APP',
+          hs_communication_logged_from: 'CRM',
+          hs_communication_body: options.body.trim(),
+          hs_timestamp: options.timestamp || new Date().toISOString(),
+        },
+        associations: [
+          {
+            to: { id: hubspotContactId },
+            types: [
+              {
+                associationCategory: 'HUBSPOT_DEFINED',
+                associationTypeId: 81,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (res.status === 201) {
+      const data = await res.json();
+      return { id: String(data.id) };
+    }
+
+    const err = await res.json().catch(() => null);
+    console.warn('[hubspot] logHubSpotWhatsAppMessage error:', res.status, err?.message || err);
+    return null;
+  } catch (err) {
+    console.error('[hubspot] logHubSpotWhatsAppMessage network error:', err);
+    return null;
+  }
+}
+
+/**
+ * Format a database message row into the body text to display in HubSpot timeline:
+ * e.g. "Cosmedic Express: Hi Claire, ..."
+ * or "Claire Hunter: Yes, I would like to book an appointment"
+ */
+export function formatWhatsAppMessageForHubSpot(
+  senderType: string,
+  contentText: string | null | undefined,
+  contentType: string | null | undefined,
+  senderName: string,
+  contactName: string
+): string {
+  let body = contentText?.trim() || '';
+
+  if (!body) {
+    if (contentType === 'image') body = '[Image]';
+    else if (contentType === 'document') body = '[Document]';
+    else if (contentType === 'video') body = '[Video]';
+    else if (contentType === 'audio') body = '[Audio message]';
+    else if (contentType === 'template') body = '[Template message]';
+    else if (contentType === 'interactive') body = '[Interactive button/list]';
+    else body = '[WhatsApp message]';
+  }
+
+  const prefix = senderType === 'customer'
+    ? (contactName?.trim() || 'Customer')
+    : (senderName?.trim() || 'Business');
+
+  if (body.toLowerCase().startsWith(`${prefix.toLowerCase()}:`)) {
+    return body;
+  }
+
+  return `${prefix}: ${body}`;
+}
+
+/**
+ * Synchronize a WhatsApp conversation chat to HubSpot:
+ * 1. Resolves/verifies contact in HubSpot (creating/updating as needed).
+ * 2. If the initial "WhatsApp conversation started" note has not yet been logged,
+ *    creates a Note on the HubSpot contact with the deep-link:
+ *    "WhatsApp conversation started\nhttps://whats-crm-three.vercel.app/chat?conversation_id={id}".
+ * 3. Logs unsynced messages as "Logged WhatsApp message" on the contact timeline
+ *    via HubSpot Communications API (WHATS_APP).
+ * 4. Updates DB rows with HubSpot IDs to prevent duplicate logs.
+ */
+export async function syncConversationChatToHubSpot(
+  options: SyncConversationChatOptions
+): Promise<SyncConversationChatResult> {
+  const { accountId, conversationId, singleMessageId } = options;
+
+  let client = options.supabase;
+  if (!client) {
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const { createClient } = await import('@supabase/supabase-js');
+      client = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+      );
+    }
+  }
+
+  if (!client) {
+    return {
+      ok: false,
+      noteCreated: false,
+      messagesSyncedCount: 0,
+      error: 'Database client not available.',
+    };
+  }
+
+  // 1. Resolve HubSpot token and config
+  let token = options.token?.trim() || null;
+  if (!token) {
+    const config = await getHubSpotConfigForAccount(client, accountId);
+    if (!config || !config.configured || !config.token) {
+      return {
+        ok: false,
+        noteCreated: false,
+        messagesSyncedCount: 0,
+        error: 'HubSpot is not configured for this account.',
+      };
+    }
+    if (!config.autoSyncChat && !config.autoSyncOnMessage && !options.singleMessageId) {
+      return {
+        ok: false,
+        noteCreated: false,
+        messagesSyncedCount: 0,
+        error: 'HubSpot chat auto-sync is disabled in settings.',
+      };
+    }
+    token = config.token;
+  }
+
+  // 2. Fetch conversation
+  const { data: conv, error: convErr } = await client
+    .from('conversations')
+    .select('id, contact_id, created_at, hubspot_started_synced, hubspot_contact_id')
+    .eq('id', conversationId)
+    .single();
+
+  if (convErr || !conv) {
+    return {
+      ok: false,
+      noteCreated: false,
+      messagesSyncedCount: 0,
+      error: 'Conversation not found.',
+    };
+  }
+
+  // 3. Fetch contact
+  const { data: contact, error: contactErr } = await client
+    .from('contacts')
+    .select('id, name, email, phone, company, hubspot_contact_id')
+    .eq('id', conv.contact_id)
+    .single();
+
+  if (contactErr || !contact) {
+    return {
+      ok: false,
+      noteCreated: false,
+      messagesSyncedCount: 0,
+      error: 'Contact for conversation not found.',
+    };
+  }
+
+  // 4. Fetch account name (for sender prefix)
+  let accountName = 'Cosmedic Express';
+  try {
+    const { data: accountData } = await client
+      .from('accounts')
+      .select('name')
+      .eq('id', accountId)
+      .maybeSingle();
+    if (accountData?.name) {
+      accountName = accountData.name;
+    }
+  } catch {
+    // Fall back to default accountName
+  }
+
+  // 5. Ensure contact is synced to HubSpot to get hubspotContactId
+  let hubspotContactId: string | null =
+    contact.hubspot_contact_id || conv.hubspot_contact_id || null;
+
+  if (!hubspotContactId) {
+    try {
+      const syncResult = await syncContactToHubSpot(token, {
+        email: contact.email,
+        name: contact.name,
+        phone: contact.phone,
+        company: contact.company,
+      });
+      hubspotContactId = syncResult.hubspotContactId;
+
+      // Cache on contact and conversation rows
+      try {
+        await client
+          .from('contacts')
+          .update({
+            hubspot_contact_id: hubspotContactId,
+            hubspot_synced_at: new Date().toISOString(),
+          })
+          .eq('id', contact.id);
+
+        await client
+          .from('conversations')
+          .update({ hubspot_contact_id: hubspotContactId })
+          .eq('id', conversationId);
+      } catch (cacheErr) {
+        console.warn('[hubspot] caching hubspot_contact_id failed:', cacheErr);
+      }
+
+      await recordHubSpotSyncLog(client, {
+        account_id: accountId,
+        contact_id: contact.id,
+        contact_name: contact.name,
+        email: contact.email,
+        phone: contact.phone,
+        action: syncResult.action,
+        hubspot_contact_id: hubspotContactId,
+        status: 'success',
+        source: 'chat_sync',
+      });
+    } catch (contactSyncErr) {
+      const errMsg =
+        contactSyncErr instanceof Error
+          ? contactSyncErr.message
+          : 'Failed to sync contact to HubSpot';
+      console.warn('[hubspot] syncContactToHubSpot before chat failed:', errMsg);
+      return {
+        ok: false,
+        noteCreated: false,
+        messagesSyncedCount: 0,
+        error: errMsg,
+      };
+    }
+  }
+
+  if (!hubspotContactId) {
+    return {
+      ok: false,
+      noteCreated: false,
+      messagesSyncedCount: 0,
+      error: 'Could not obtain HubSpot Contact ID.',
+    };
+  }
+
+  // 6. Ensure initial "WhatsApp conversation started" note is logged
+  let noteCreated = false;
+  if (!conv.hubspot_started_synced) {
+    const deepLink = getHubSpotChatDeepLink(conversationId);
+    const noteBody = `WhatsApp conversation started\n${deepLink}`;
+    console.info(`[HubSpot] Creating initial conversation note for conversation ${conversationId}...`);
+    const noteRes = await createHubSpotNote(
+      token,
+      hubspotContactId,
+      noteBody,
+      conv.created_at
+    );
+
+    if (noteRes?.id) {
+      noteCreated = true;
+      try {
+        await client
+          .from('conversations')
+          .update({
+            hubspot_started_synced: true,
+            hubspot_contact_id: hubspotContactId,
+          })
+          .eq('id', conversationId);
+      } catch (convUpdateErr) {
+        console.warn('[hubspot] updating conversation sync status failed:', convUpdateErr);
+      }
+
+      await recordHubSpotSyncLog(client, {
+        account_id: accountId,
+        contact_id: contact.id,
+        contact_name: contact.name,
+        email: contact.email,
+        phone: contact.phone,
+        action: 'note_created',
+        hubspot_contact_id: hubspotContactId,
+        status: 'success',
+        source: 'chat_sync',
+      });
+      console.info(`[HubSpot] ✓ Initial conversation note created in HubSpot (Note ID: ${noteRes.id})`);
+    } else {
+      console.warn('[HubSpot] Initial note creation returned null');
+    }
+  }
+
+  // 7. Sync messages to HubSpot
+  let messagesQuery = client
+    .from('messages')
+    .select('id, sender_type, content_type, content_text, media_url, template_name, interactive_reply_id, created_at, hubspot_communication_id')
+    .eq('conversation_id', conversationId);
+
+  if (singleMessageId) {
+    messagesQuery = messagesQuery.eq('id', singleMessageId);
+  } else {
+    messagesQuery = messagesQuery
+      .is('hubspot_communication_id', null)
+      .order('created_at', { ascending: true });
+  }
+
+  const { data: messagesToSync, error: msgsErr } = await messagesQuery;
+  if (msgsErr) {
+    console.warn('[hubspot] Error querying messages to sync:', msgsErr);
+    return {
+      ok: true,
+      hubspotContactId,
+      noteCreated,
+      messagesSyncedCount: 0,
+    };
+  }
+
+  let messagesSyncedCount = 0;
+  if (messagesToSync && messagesToSync.length > 0) {
+    for (const msg of messagesToSync) {
+      if (msg.hubspot_communication_id) continue;
+
+      const body = formatWhatsAppMessageForHubSpot(
+        msg.sender_type,
+        msg.content_text,
+        msg.content_type,
+        accountName,
+        contact.name || 'Customer'
+      );
+
+      console.info(`[HubSpot] Logging WhatsApp message to HubSpot: "${body.slice(0, 50)}..."`);
+      const commResult = await logHubSpotWhatsAppMessage(
+        token,
+        hubspotContactId,
+        {
+          body,
+          timestamp: msg.created_at,
+        }
+      );
+
+      if (commResult?.id) {
+        messagesSyncedCount++;
+        try {
+          await client
+            .from('messages')
+            .update({
+              hubspot_communication_id: commResult.id,
+              hubspot_synced_at: new Date().toISOString(),
+            })
+            .eq('id', msg.id);
+        } catch (msgUpdateErr) {
+          console.warn('[hubspot] updating message sync status failed:', msgUpdateErr);
+        }
+
+        await recordHubSpotSyncLog(client, {
+          account_id: accountId,
+          contact_id: contact.id,
+          contact_name: contact.name,
+          email: contact.email,
+          phone: contact.phone,
+          action: 'message_logged',
+          hubspot_contact_id: hubspotContactId,
+          status: 'success',
+          source:
+            msg.sender_type === 'customer'
+              ? 'whatsapp_message'
+              : 'outbound_message',
+        });
+      }
+    }
+    console.info(`[HubSpot] ✓ Logged ${messagesSyncedCount} messages to HubSpot contact ${hubspotContactId}`);
+  }
+
+  return {
+    ok: true,
+    hubspotContactId,
+    noteCreated,
+    messagesSyncedCount,
+  };
+}
+

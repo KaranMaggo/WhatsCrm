@@ -7,6 +7,11 @@ import {
   createHubSpotContact,
   updateHubSpotContact,
   syncContactToHubSpot,
+  getHubSpotChatDeepLink,
+  formatWhatsAppMessageForHubSpot,
+  createHubSpotNote,
+  logHubSpotWhatsAppMessage,
+  syncConversationChatToHubSpot,
 } from './hubspot';
 
 describe('HubSpot Integration Client', () => {
@@ -300,6 +305,221 @@ describe('HubSpot Integration Client', () => {
           name: 'No Contact Info',
         })
       ).rejects.toThrow('Contact must have an email or phone number');
+    });
+  });
+
+  describe('getHubSpotChatDeepLink', () => {
+    it('generates the default deep-link format matching https://whats-crm-three.vercel.app/chat?conversation_id=...', () => {
+      const link = getHubSpotChatDeepLink('conv-1234-uuid');
+      expect(link).toBe('https://whats-crm-three.vercel.app/chat?conversation_id=conv-1234-uuid');
+    });
+  });
+
+  describe('formatWhatsAppMessageForHubSpot', () => {
+    it('formats customer inbound message with customer name', () => {
+      const formatted = formatWhatsAppMessageForHubSpot(
+        'customer',
+        'Hello, which area can you treat?',
+        'text',
+        'Cosmedic Express',
+        'Claire Hunter'
+      );
+      expect(formatted).toBe('Claire Hunter: Hello, which area can you treat?');
+    });
+
+    it('formats agent outbound message with business name', () => {
+      const formatted = formatWhatsAppMessageForHubSpot(
+        'agent',
+        'Hi Claire, we are the ONLY British and American-owned clinic abroad...',
+        'text',
+        'Cosmedic Express',
+        'Claire Hunter'
+      );
+      expect(formatted).toBe('Cosmedic Express: Hi Claire, we are the ONLY British and American-owned clinic abroad...');
+    });
+
+    it('does not duplicate prefix if already present', () => {
+      const formatted = formatWhatsAppMessageForHubSpot(
+        'agent',
+        'Cosmedic Express: Special offer',
+        'text',
+        'Cosmedic Express',
+        'Claire Hunter'
+      );
+      expect(formatted).toBe('Cosmedic Express: Special offer');
+    });
+
+    it('handles media attachments with fallback placeholders', () => {
+      const formatted = formatWhatsAppMessageForHubSpot(
+        'customer',
+        '',
+        'image',
+        'Cosmedic Express',
+        'Claire Hunter'
+      );
+      expect(formatted).toBe('Claire Hunter: [Image]');
+    });
+  });
+
+  describe('createHubSpotNote', () => {
+    it('posts to /crm/v3/objects/notes with note association 202', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 201,
+        json: async () => ({ id: 'note-101' }),
+      });
+
+      const res = await createHubSpotNote('token', 'contact-999', 'WhatsApp conversation started\nhttps://whats-crm-three.vercel.app/chat?conversation_id=abc');
+      expect(res).toEqual({ id: 'note-101' });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.hubapi.com/crm/v3/objects/notes',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('WhatsApp conversation started'),
+        })
+      );
+    });
+  });
+
+  describe('logHubSpotWhatsAppMessage', () => {
+    it('posts to /crm/v3/objects/communications with WHATS_APP channel and association 81', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 201,
+        json: async () => ({ id: 'comm-202' }),
+      });
+
+      const res = await logHubSpotWhatsAppMessage('token', 'contact-999', {
+        body: 'Cosmedic Express: Hello Claire',
+      });
+      expect(res).toEqual({ id: 'comm-202' });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.hubapi.com/crm/v3/objects/communications',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('WHATS_APP'),
+        })
+      );
+    });
+  });
+
+  describe('syncConversationChatToHubSpot', () => {
+    it('creates start note and logs unsynced messages', async () => {
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === 'conversations') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  single: async () => ({
+                    data: {
+                      id: 'conv-1',
+                      contact_id: 'cont-1',
+                      created_at: '2026-10-26T12:00:00Z',
+                      hubspot_started_synced: false,
+                      hubspot_contact_id: 'hs-cont-123',
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+              update: () => ({
+                eq: () => Promise.resolve({ data: null, error: null }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  single: async () => ({
+                    data: {
+                      id: 'cont-1',
+                      name: 'Claire Hunter',
+                      email: 'claire@example.com',
+                      phone: '+447000000000',
+                      company: 'Clinic UK',
+                      hubspot_contact_id: 'hs-cont-123',
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+              update: () => ({
+                eq: () => Promise.resolve({ data: null, error: null }),
+              }),
+            };
+          }
+          if (table === 'accounts') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: { name: 'Cosmedic Express' },
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'messages') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  is: () => ({
+                    order: async () => ({
+                      data: [
+                        {
+                          id: 'msg-1',
+                          sender_type: 'agent',
+                          content_type: 'text',
+                          content_text: 'Hi Claire, welcome!',
+                          created_at: '2026-10-26T12:01:00Z',
+                          hubspot_communication_id: null,
+                        },
+                      ],
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              update: () => ({
+                eq: () => Promise.resolve({ data: null, error: null }),
+              }),
+            };
+          }
+          return {
+            insert: () => Promise.resolve({ data: null, error: null }),
+          };
+        }),
+      } as unknown as any;
+
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/notes')) {
+          return Promise.resolve({
+            status: 201,
+            json: async () => ({ id: 'note-hs-1' }),
+          });
+        }
+        if (url.includes('/communications')) {
+          return Promise.resolve({
+            status: 201,
+            json: async () => ({ id: 'comm-hs-1' }),
+          });
+        }
+        return Promise.resolve({ status: 200, json: async () => ({}) });
+      });
+
+      const res = await syncConversationChatToHubSpot({
+        supabase: mockSupabase,
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        token: 'test-token',
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.noteCreated).toBe(true);
+      expect(res.messagesSyncedCount).toBe(1);
+      expect(res.hubspotContactId).toBe('hs-cont-123');
     });
   });
 });

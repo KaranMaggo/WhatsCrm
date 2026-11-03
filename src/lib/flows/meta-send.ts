@@ -155,15 +155,20 @@ export async function engineSendText(
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
   }
 
-  const { error: msgErr } = await db.from('messages').insert({
-    conversation_id: args.conversationId,
-    sender_type: 'bot',
-    content_type: 'text',
-    content_text: args.text,
-    message_id: waMessageId,
-    status: 'sent',
-    ai_generated: args.aiGenerated ?? false,
-  })
+  const { data: insertedMsg, error: msgErr } = await db
+    .from('messages')
+    .insert({
+      conversation_id: args.conversationId,
+      sender_type: 'bot',
+      content_type: 'text',
+      content_text: args.text,
+      message_id: waMessageId,
+      status: 'sent',
+      ai_generated: args.aiGenerated ?? false,
+    })
+    .select('id')
+    .maybeSingle()
+
   if (msgErr) {
     throw new Error(t('send.dbInsertFailed', { message: msgErr.message }))
   }
@@ -177,6 +182,19 @@ export async function engineSendText(
     })
     .eq('id', args.conversationId)
     .eq('account_id', args.accountId)
+
+  // Best-effort sync to HubSpot timeline
+  try {
+    const { syncConversationChatToHubSpot } = await import('@/lib/integrations/hubspot')
+    void syncConversationChatToHubSpot({
+      supabase: db,
+      accountId: args.accountId,
+      conversationId: args.conversationId,
+      singleMessageId: insertedMsg?.id,
+    }).catch((err) => console.warn('[hubspot] flow send sync failed:', err))
+  } catch (syncErr) {
+    console.warn('[hubspot] flow send sync threw:', syncErr)
+  }
 
   return { whatsapp_message_id: waMessageId }
 }

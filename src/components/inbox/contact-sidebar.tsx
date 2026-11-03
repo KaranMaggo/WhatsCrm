@@ -15,18 +15,23 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  Share2,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 import { contactHandle } from "@/lib/whatsapp/wa-identity";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  conversationId?: string | null;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, conversationId }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
@@ -37,6 +42,56 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [syncingHubSpot, setSyncingHubSpot] = useState(false);
+  const [hubspotId, setHubspotId] = useState<string | null>(
+    contact?.hubspot_contact_id || null
+  );
+
+  useEffect(() => {
+    setHubspotId(contact?.hubspot_contact_id || null);
+  }, [contact?.hubspot_contact_id]);
+
+  const handleSyncChatToHubSpot = useCallback(async () => {
+    if (!contact) return;
+    if (!contact.email && !contact.phone) {
+      toast.error('Contact must have an email or phone number to sync with HubSpot.');
+      return;
+    }
+
+    setSyncingHubSpot(true);
+    try {
+      const res = await fetch('/api/integrations/hubspot/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId: contact.id,
+          conversationId: conversationId || undefined,
+          syncChat: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to sync with HubSpot');
+      }
+
+      if (data.hubspotContactId) {
+        setHubspotId(data.hubspotContactId);
+      }
+
+      const msgParts = [];
+      if (data.action === 'created') msgParts.push('Contact created');
+      else msgParts.push('Contact updated');
+      if (data.noteCreated) msgParts.push('conversation note created');
+      if (data.messagesSyncedCount > 0) msgParts.push(`${data.messagesSyncedCount} messages logged`);
+
+      toast.success(`HubSpot: ${msgParts.join(', ')} (#${data.hubspotContactId})`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'HubSpot sync failed');
+    } finally {
+      setSyncingHubSpot(false);
+    }
+  }, [contact, conversationId]);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -182,6 +237,43 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                 <span className="truncate">{contact.email}</span>
               </div>
             )}
+          </div>
+
+          {/* HubSpot CRM Card */}
+          <div className="mt-4 rounded-xl border border-orange-500/25 bg-orange-500/5 p-3 dark:bg-orange-500/10">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-orange-500/20 text-orange-600 dark:text-orange-400">
+                  <Share2 className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-semibold text-foreground">HubSpot CRM</h4>
+                  <p className="text-[10px] text-muted-foreground">
+                    {hubspotId ? `ID: ${hubspotId}` : 'Not synced yet'}
+                  </p>
+                </div>
+              </div>
+              {hubspotId && (
+                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+                  Synced
+                </span>
+              )}
+            </div>
+
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={syncingHubSpot}
+              onClick={handleSyncChatToHubSpot}
+              className="mt-2.5 w-full border-orange-500/30 bg-background text-xs font-medium text-orange-600 hover:bg-orange-500/10 dark:text-orange-400"
+            >
+              {syncingHubSpot ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Share2 className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Sync Chat to HubSpot
+            </Button>
           </div>
 
           {/* Divider */}

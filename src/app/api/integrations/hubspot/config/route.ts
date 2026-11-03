@@ -17,6 +17,7 @@ export async function GET() {
       portal_id: config.portalId ?? null,
       auto_sync_on_message: config.autoSyncOnMessage,
       auto_sync_contacts: config.autoSyncContacts,
+      auto_sync_chat: config.autoSyncChat,
       is_env: config.isEnv,
     });
   } catch (err) {
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
       typeof body.auto_sync_on_message === 'boolean' ? body.auto_sync_on_message : undefined;
     const autoSyncContacts =
       typeof body.auto_sync_contacts === 'boolean' ? body.auto_sync_contacts : undefined;
+    const autoSyncChat =
+      typeof body.auto_sync_chat === 'boolean' ? body.auto_sync_chat : undefined;
 
     // If a new access token is supplied, verify it first before persisting
     if (accessToken) {
@@ -59,6 +62,7 @@ export async function POST(request: Request) {
       portalId,
       autoSyncOnMessage,
       autoSyncContacts,
+      autoSyncChat,
     });
 
     if (!saveResult.ok) {

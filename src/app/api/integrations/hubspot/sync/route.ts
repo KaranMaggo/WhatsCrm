@@ -4,7 +4,10 @@ import {
   getHubSpotConfigForAccount,
   saveHubSpotConfigForAccount,
 } from '@/lib/integrations/hubspot-config';
-import { syncContactToHubSpot } from '@/lib/integrations/hubspot';
+import {
+  syncContactToHubSpot,
+  syncConversationChatToHubSpot,
+} from '@/lib/integrations/hubspot';
 import { recordHubSpotSyncLog } from '@/lib/integrations/hubspot-logs';
 
 export async function POST(request: Request) {
@@ -59,7 +62,7 @@ export async function POST(request: Request) {
       body.source === 'test'
     ) {
       sourceForLog = body.source;
-    } else if (!body.contactId) {
+    } else if (!body.contactId && !body.conversationId) {
       sourceForLog = 'api';
     }
 
@@ -67,6 +70,21 @@ export async function POST(request: Request) {
     let name = typeof body.name === 'string' ? body.name.trim() : null;
     let phone = typeof body.phone === 'string' ? body.phone.trim() : null;
     let company = typeof body.company === 'string' ? body.company.trim() : null;
+    let targetConversationId =
+      typeof body.conversationId === 'string' && body.conversationId.trim()
+        ? body.conversationId.trim()
+        : null;
+
+    if (targetConversationId && !body.contactId) {
+      const { data: convData } = await supabase
+        .from('conversations')
+        .select('contact_id')
+        .eq('id', targetConversationId)
+        .maybeSingle();
+      if (convData?.contact_id) {
+        body.contactId = convData.contact_id;
+      }
+    }
 
     if (body.contactId && typeof body.contactId === 'string') {
       contactIdForLog = body.contactId;
@@ -118,11 +136,42 @@ export async function POST(request: Request) {
       source: sourceForLog,
     });
 
+    // Also sync chat conversation if requested or if conversation exists
+    if (!targetConversationId && contactIdForLog && body.syncChat !== false) {
+      const { data: latestConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contactIdForLog)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestConv?.id) {
+        targetConversationId = latestConv.id;
+      }
+    }
+
+    let chatResult = null;
+    if (targetConversationId) {
+      chatResult = await syncConversationChatToHubSpot({
+        supabase,
+        accountId,
+        conversationId: targetConversationId,
+        token: tokenToUse,
+        syncAllMessages: true,
+      }).catch((e) => {
+        console.warn('[hubspot/sync] chat sync error:', e);
+        return null;
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       action: result.action,
       hubspotContactId: result.hubspotContactId,
       email: result.email,
+      chatSynced: !!chatResult?.ok,
+      noteCreated: chatResult?.noteCreated ?? false,
+      messagesSyncedCount: chatResult?.messagesSyncedCount ?? 0,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'HubSpot contact sync failed.';

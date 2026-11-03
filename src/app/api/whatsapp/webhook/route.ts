@@ -23,7 +23,10 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { getHubSpotConfigForAccount } from '@/lib/integrations/hubspot-config'
-import { syncContactToHubSpot } from '@/lib/integrations/hubspot'
+import {
+  syncContactToHubSpot,
+  syncConversationChatToHubSpot,
+} from '@/lib/integrations/hubspot'
 import { recordHubSpotSyncLog } from '@/lib/integrations/hubspot-logs'
 
 // The `after()` callback in POST runs within this route's max duration.
@@ -1011,12 +1014,18 @@ async function processMessage(
     text: contentText,
   })
 
-  // Sync contact to HubSpot on inbound WhatsApp message
-  await syncInboundContactToHubSpot(accountId, contactRecord, inboundText)
+  // Sync contact & conversation chat to HubSpot on inbound WhatsApp message
+  await syncInboundContactToHubSpot(
+    accountId,
+    contactRecord,
+    inboundText,
+    conversation.id,
+    insertedRows?.[0]?.id
+  )
 }
 
 /**
- * Automatically sync contact to HubSpot when an inbound WhatsApp message is received.
+ * Automatically sync contact and conversation chat to HubSpot when an inbound WhatsApp message is received.
  *
  * 1. Checks if HubSpot integration is configured and autoSyncOnMessage is enabled.
  * 2. If contact does not have an email, checks if the message text contains an email address and backfills it.
@@ -1025,13 +1034,17 @@ async function processMessage(
  *    - If email exists -> updates the contact in HubSpot.
  *    - If email does not exist -> creates the contact in HubSpot.
  *    - If no email, checks/creates by phone.
+ * 4. Ensures "WhatsApp conversation started" note is logged with deep link.
+ * 5. Logs the incoming WhatsApp message on the contact's timeline.
  *
  * Never throws — errors are caught and logged so webhook delivery to Meta is unaffected.
  */
 async function syncInboundContactToHubSpot(
   accountId: string,
   contact: ContactRow,
-  messageText: string | null
+  messageText: string | null,
+  conversationId?: string,
+  messageId?: string
 ) {
   try {
     const config = await getHubSpotConfigForAccount(supabaseAdmin(), accountId)
@@ -1078,6 +1091,19 @@ async function syncInboundContactToHubSpot(
       status: 'success',
       source: 'whatsapp_message',
     })
+
+    // Sync conversation started note & inbound message to HubSpot timeline
+    if (conversationId) {
+      await syncConversationChatToHubSpot({
+        supabase: supabaseAdmin(),
+        accountId,
+        conversationId,
+        token: config.token,
+        singleMessageId: messageId,
+      }).catch((e) =>
+        console.warn('[HubSpot Sync] syncConversationChatToHubSpot error:', e)
+      )
+    }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Inbound sync failed'
     console.error('[HubSpot Sync] Inbound contact sync error:', errorMsg)

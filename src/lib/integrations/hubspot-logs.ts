@@ -17,11 +17,11 @@ export interface HubSpotSyncLog {
   contact_name?: string | null;
   email?: string | null;
   phone?: string | null;
-  action: 'created' | 'updated' | 'failed';
+  action: 'created' | 'updated' | 'failed' | 'note_created' | 'message_logged' | 'chat_synced';
   hubspot_contact_id?: string | null;
   status: 'success' | 'error';
   error_message?: string | null;
-  source: 'whatsapp_message' | 'manual' | 'api' | 'contact_form' | 'test';
+  source: 'whatsapp_message' | 'manual' | 'api' | 'contact_form' | 'test' | 'chat_sync' | 'outbound_message';
   created_at: string;
 }
 

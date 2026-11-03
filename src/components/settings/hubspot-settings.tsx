@@ -66,6 +66,7 @@ export function HubSpotSettings() {
   const [portalId, setPortalId] = useState('');
   const [autoSyncOnMessage, setAutoSyncOnMessage] = useState(true);
   const [autoSyncContacts, setAutoSyncContacts] = useState(true);
+  const [autoSyncChat, setAutoSyncChat] = useState(true);
 
   const [connected, setConnected] = useState<boolean | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
@@ -98,6 +99,7 @@ export function HubSpotSettings() {
         setPortalId(data.portal_id || '');
         setAutoSyncOnMessage(data.auto_sync_on_message !== false);
         setAutoSyncContacts(data.auto_sync_contacts !== false);
+        setAutoSyncChat(data.auto_sync_chat !== false);
         setConnected(data.configured ? true : false);
         if (data.configured) {
           setStatusMessage(data.is_env ? 'Configured via environment variable' : 'Connected to HubSpot');
@@ -203,6 +205,7 @@ export function HubSpotSettings() {
         portal_id: portalId,
         auto_sync_on_message: autoSyncOnMessage,
         auto_sync_contacts: autoSyncContacts,
+        auto_sync_chat: autoSyncChat,
       };
 
       if (accessToken.trim()) {
@@ -411,6 +414,23 @@ export function HubSpotSettings() {
                   id="auto-sync-contacts"
                   checked={autoSyncContacts}
                   onCheckedChange={setAutoSyncContacts}
+                  disabled={!canEditSettings}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="auto-sync-chat" className="text-sm font-medium cursor-pointer">
+                    Sync WhatsApp Chat Timeline &amp; Messages
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Logs the initial conversation note (&quot;WhatsApp conversation started&quot; with deep link) and records messages on the HubSpot contact timeline as Logged WhatsApp messages.
+                  </p>
+                </div>
+                <Switch
+                  id="auto-sync-chat"
+                  checked={autoSyncChat}
+                  onCheckedChange={setAutoSyncChat}
                   disabled={!canEditSettings}
                 />
               </div>
