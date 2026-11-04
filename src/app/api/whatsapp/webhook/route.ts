@@ -728,7 +728,7 @@ async function processMessage(
     await parseMessageContent(
       message,
       accessToken,
-      mirrorMedia ? { accountId } : null
+      mirrorMedia ? { accountId, contactId: contactRecord.id } : null
     )
 
   // Resolve swipe-reply context if present. A missing parent is fine —
@@ -1136,8 +1136,9 @@ async function parseMessageContent(
   message: WhatsAppMessage,
   accessToken: string,
   // Tenancy + opt-out for the media mirror. Null disables mirroring
-  // entirely, which is what the account-level toggle does.
-  mirror: { accountId: string } | null
+  // entirely, which is what the account-level toggle does. `contactId`
+  // files the media under the sender's own folder in the bucket.
+  mirror: { accountId: string; contactId: string } | null
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -1179,6 +1180,7 @@ async function parseMessageContent(
         const mirrored = await mirrorInboundMedia({
           storage: supabaseAdmin().storage,
           accountId: mirror.accountId,
+          contactId: mirror.contactId,
           mediaId,
           downloadUrl: info.url,
           accessToken,

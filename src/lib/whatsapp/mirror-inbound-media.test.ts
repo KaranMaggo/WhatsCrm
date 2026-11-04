@@ -162,6 +162,24 @@ describe("mirrorInboundMedia", () => {
     );
   });
 
+  it("files the object under the sender's own folder when given a contact", async () => {
+    const { storage, uploads } = fakeStorage();
+    const CONTACT = "99999999-8888-7777-6666-555555555555";
+
+    await mirrorInboundMedia({
+      ...BASE,
+      storage,
+      contactId: CONTACT,
+      mimeType: "image/jpeg",
+      messageTimestamp: "1754899200",
+      download: fakeDownload(1024),
+    });
+
+    expect(uploads[0].path).toBe(
+      `account-${ACCOUNT}/contact-${CONTACT}/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+    );
+  });
+
   it("writes the same path on a redelivery, so a retry can't orphan a copy", async () => {
     const { storage, uploads } = fakeStorage();
     const args = {

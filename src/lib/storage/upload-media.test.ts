@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildMediaPath, MEDIA_MAX_BYTES_BY_KIND } from "./upload-media";
 
 const ACCOUNT = "11111111-2222-3333-4444-555555555555";
+const CONTACT = "99999999-8888-7777-6666-555555555555";
 
 describe("buildMediaPath", () => {
   it("namespaces under account-<id> so RLS write policies match", () => {
@@ -41,6 +42,29 @@ describe("buildMediaPath", () => {
     const path = buildMediaPath(ACCOUNT, "photo.png", null, "inbound");
     expect(path).toBe(`account-${ACCOUNT}/inbound/photo.png`);
     expect(path.split("/")[0]).toBe(`account-${ACCOUNT}`);
+  });
+
+  it("puts the customer's folder between the account and the subfolder", () => {
+    const path = buildMediaPath(ACCOUNT, "photo.png", null, "inbound", CONTACT);
+    expect(path).toBe(`account-${ACCOUNT}/contact-${CONTACT}/inbound/photo.png`);
+    // The RLS write policies only look at this first segment.
+    expect(path.split("/")[0]).toBe(`account-${ACCOUNT}`);
+  });
+
+  it("works with a contact but no subfolder", () => {
+    const path = buildMediaPath(ACCOUNT, "photo.png", 1700000000000, undefined, CONTACT);
+    expect(path).toBe(`account-${ACCOUNT}/contact-${CONTACT}/1700000000000-photo.png`);
+  });
+
+  it("keeps a contact id from adding path levels", () => {
+    const path = buildMediaPath(ACCOUNT, "photo.png", null, "inbound", "../other/abc");
+    expect(path).toBe(`account-${ACCOUNT}/contact-otherabc/inbound/photo.png`);
+    expect(path.split("/")).toHaveLength(4);
+  });
+
+  it("ignores a contact id with nothing usable in it", () => {
+    const path = buildMediaPath(ACCOUNT, "photo.png", null, "inbound", "///");
+    expect(path).toBe(`account-${ACCOUNT}/inbound/photo.png`);
   });
 });
 

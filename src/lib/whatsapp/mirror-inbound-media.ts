@@ -51,6 +51,12 @@ export interface MirrorInboundMediaArgs {
   storage: MirrorStorage;
   /** Tenant. Drives the account-scoped path the bucket's policies expect. */
   accountId: string;
+  /**
+   * The customer who sent the media. When given, the file is stored in
+   * that customer's own folder (`account-<id>/contact-<id>/inbound/…`).
+   * Optional so a caller without a contact keeps the old account-level path.
+   */
+  contactId?: string | null;
   /** Meta's media id. Makes the object path deterministic. */
   mediaId: string;
   /** Short-lived CDN URL from `getMediaUrl`. */
@@ -152,6 +158,7 @@ export async function mirrorInboundMedia(
   const {
     storage,
     accountId,
+    contactId,
     mediaId,
     downloadUrl,
     accessToken,
@@ -205,7 +212,13 @@ export async function mirrorInboundMedia(
     // `null` suppresses buildMediaPath's wall-clock stamp: the media id
     // already makes this path unique AND stable, and it's the stability
     // that makes a redelivery idempotent rather than duplicative.
-    const path = buildMediaPath(accountId, objectName, null, MIRROR_FOLDER);
+    const path = buildMediaPath(
+      accountId,
+      objectName,
+      null,
+      MIRROR_FOLDER,
+      contactId ?? undefined,
+    );
 
     // `upsert: true` for that same reason: on the rare Meta redelivery
     // the second pass rewrites byte-identical content at the same key

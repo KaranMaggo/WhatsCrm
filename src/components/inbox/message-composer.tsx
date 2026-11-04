@@ -111,6 +111,8 @@ interface MediaDraft {
 
 interface MessageComposerProps {
   conversationId: string;
+  /** Customer this thread belongs to. Files sent from here are stored in their folder. */
+  contactId?: string | null;
   sessionExpired: boolean;
   onSend: (text: string, replyToId?: string) => void;
   onSendMedia: (payload: SendMediaPayload) => void;
@@ -133,6 +135,7 @@ const OPUS_ENCODER_PATH = "/opus/encoderWorker.min.js";
 
 export function MessageComposer({
   conversationId,
+  contactId,
   sessionExpired,
   onSend,
   onSendMedia,
@@ -401,7 +404,10 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file, {
+          contactId,
+          subfolder: "outbound",
+        });
         // Replacing an existing draft? GC the previous object first.
         removeStaged(draftRef.current?.path);
         setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
@@ -411,7 +417,7 @@ export function MessageComposer({
         setBusy(false);
       }
     },
-    [removeStaged, t],
+    [removeStaged, t, contactId],
   );
 
   const handlePicked = useCallback(
@@ -439,7 +445,10 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file, {
+          contactId,
+          subfolder: "outbound",
+        });
         removeStaged(draftRef.current?.path);
         setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });
       } catch (err) {
@@ -448,7 +457,7 @@ export function MessageComposer({
         setBusy(false);
       }
     },
-    [removeStaged, t],
+    [removeStaged, t, contactId],
   );
 
   const startRecording = useCallback(async () => {
