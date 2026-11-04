@@ -5,10 +5,10 @@ Connect WhatsCRM with HubSpot to automatically synchronize WhatsApp contacts and
 ## Overview
 
 Whenever a message is received on WhatsApp (or when a contact is created/updated):
-1. **Email Existence Check**: The integration first checks if a contact with that email address already exists in HubSpot via HubSpot CRM API v3.
-2. **Update on Match**: If the contact exists in HubSpot with that email, it updates the existing HubSpot contact with the contact's name, phone, and company.
-3. **Create on New**: If the contact does not exist in HubSpot, it creates a new contact in HubSpot with email, name, phone, and company.
-4. **Phone Fallback**: If no email is present, it searches HubSpot by phone number to update existing or create new.
+1. **Email Existence Check**: The integration first checks if a contact with that email address already exists in HubSpot via HubSpot CRM API v3 (`GET /crm/v3/objects/contacts/{email}?idProperty=email`).
+2. **Phone Number Check**: If no email is provided or if the contact is not found by email, WhatsCRM checks HubSpot by phone number (querying both `phone` and `mobilephone` properties via Search API v3 across format variations like `+`, without `+`, and normalized digits).
+3. **Update on Match**: If the contact exists in HubSpot by email or phone, it updates the existing HubSpot contact with the contact's name, email, phone, and company.
+4. **Create on New**: If the contact does not exist in HubSpot by either email or phone, it creates a new contact in HubSpot with email, name, phone, and company.
 
 ---
 
@@ -53,9 +53,9 @@ HUBSPOT_ACCESS_TOKEN=pat-na1-...
 - When an inbound WhatsApp message arrives at `/api/whatsapp/webhook`, WhatsCRM resolves or creates the contact.
 - If the contact does not yet have an email, WhatsCRM automatically inspects the incoming WhatsApp message text for an email address (e.g. `john@example.com`). If found, it saves it to the contact record.
 - WhatsCRM queries HubSpot:
-  - `GET /crm/v3/objects/contacts/{email}?idProperty=email`
-  - If **found (HTTP 200)**: Updates the contact via `PATCH /crm/v3/objects/contacts/{id}`.
-  - If **not found (HTTP 404)**: Creates a new contact via `POST /crm/v3/objects/contacts`.
+  - If email is present: `GET /crm/v3/objects/contacts/{email}?idProperty=email`. If **found (HTTP 200)**, updates the existing contact via `PATCH /crm/v3/objects/contacts/{id}`.
+  - If email is not found (or not provided) and phone is present: `POST /crm/v3/objects/contacts/search` across `phone` and `mobilephone`. If **found (HTTP 200)**, updates the existing contact via `PATCH /crm/v3/objects/contacts/{id}`.
+  - If neither matches: Creates a new contact via `POST /crm/v3/objects/contacts`.
 - This runs asynchronously inside Next.js `after()`, so the WhatsApp webhook responds immediately to Meta with `200 OK`.
 
 ---

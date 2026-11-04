@@ -86,6 +86,7 @@ export async function POST(request: Request) {
       }
     }
 
+    let cachedHubSpotId: string | null = null;
     if (body.contactId && typeof body.contactId === 'string') {
       contactIdForLog = body.contactId;
       const { data: contact, error: contactErr } = await supabase
@@ -103,13 +104,14 @@ export async function POST(request: Request) {
       name = name || contact.name || null;
       phone = phone || contact.phone || null;
       company = company || contact.company || null;
+      cachedHubSpotId = contact.hubspot_contact_id || null;
     }
 
     nameForLog = name;
     emailForLog = email;
     phoneForLog = phone;
 
-    if (!email && !phone) {
+    if (!email && !phone && !cachedHubSpotId) {
       return NextResponse.json(
         { error: 'Contact must have an email or phone number to sync with HubSpot.' },
         { status: 400 }
@@ -121,7 +123,19 @@ export async function POST(request: Request) {
       name,
       phone,
       company,
+      hubspotContactId: cachedHubSpotId,
     });
+
+    // Update contacts table with cached hubspot_contact_id and hubspot_synced_at
+    if (contactIdForLog && result.hubspotContactId) {
+      await supabase
+        .from('contacts')
+        .update({
+          hubspot_contact_id: result.hubspotContactId,
+          hubspot_synced_at: new Date().toISOString(),
+        })
+        .eq('id', contactIdForLog);
+    }
 
     // Record successful sync log
     await recordHubSpotSyncLog(supabase, {

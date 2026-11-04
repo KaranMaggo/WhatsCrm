@@ -1078,7 +1078,18 @@ async function syncInboundContactToHubSpot(
       name: contact.name,
       phone: contact.phone,
       company: contact.company,
+      hubspotContactId: (contact as { hubspot_contact_id?: string | null })?.hubspot_contact_id || null,
     })
+
+    if (result.hubspotContactId) {
+      await supabaseAdmin()
+        .from('contacts')
+        .update({
+          hubspot_contact_id: result.hubspotContactId,
+          hubspot_synced_at: new Date().toISOString(),
+        })
+        .eq('id', contact.id)
+    }
 
     await recordHubSpotSyncLog(supabaseAdmin(), {
       account_id: accountId,

@@ -4,6 +4,7 @@ import {
   testHubSpotConnection,
   findHubSpotContactByEmail,
   findHubSpotContactByPhone,
+  getPhoneSearchCandidates,
   createHubSpotContact,
   updateHubSpotContact,
   syncContactToHubSpot,
@@ -264,15 +265,21 @@ describe('HubSpot Integration Client', () => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
-    it('checks email first: if email does NOT exist, creates the contact in HubSpot', async () => {
+    it('checks email first: if email does NOT exist and phone does not exist, creates the contact in HubSpot', async () => {
       // 1. GET by email -> returns 404 (not found)
-      // 2. POST -> returns 201 (created contact)
+      // 2. POST search by phone -> returns 200 (total: 0)
+      // 3. POST create contact -> returns 201 (created contact)
       global.fetch = vi
         .fn()
         .mockResolvedValueOnce({
           ok: false,
           status: 404,
           json: async () => ({ status: 'error', category: 'OBJECT_NOT_FOUND' }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ total: 0, results: [] }),
         } as unknown as Response)
         .mockResolvedValueOnce({
           ok: true,
@@ -296,7 +303,159 @@ describe('HubSpot Integration Client', () => {
       expect(result.action).toBe('created');
       expect(result.hubspotContactId).toBe('new-hs-id-202');
       expect(result.email).toBe('brandnew@example.com');
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('checks phone when email does not exist: updates existing contact matched by phone number', async () => {
+      // 1. GET by email -> returns 404 (not found)
+      // 2. POST search by phone -> returns 200 with existing contact
+      // 3. PATCH update contact -> returns 200
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: async () => ({ status: 'error', category: 'OBJECT_NOT_FOUND' }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            total: 1,
+            results: [
+              {
+                id: 'existing-phone-contact-55',
+                properties: {
+                  phone: '+15558889999',
+                  firstname: 'Existing',
+                },
+              },
+            ],
+          }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: 'existing-phone-contact-55',
+            properties: {
+              email: 'brandnew@example.com',
+              phone: '+15558889999',
+              firstname: 'Brand',
+              lastname: 'New',
+            },
+          }),
+        } as unknown as Response);
+
+      const result = await syncContactToHubSpot('token', {
+        email: 'brandnew@example.com',
+        name: 'Brand New',
+        phone: '+15558889999',
+      });
+
+      expect(result.action).toBe('updated');
+      expect(result.hubspotContactId).toBe('existing-phone-contact-55');
+      expect(result.email).toBe('brandnew@example.com');
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('checks phone when only phone is provided: updates existing contact matched by phone', async () => {
+      // 1. POST search by phone -> returns 200 with existing contact
+      // 2. PATCH update contact -> returns 200
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            total: 1,
+            results: [
+              {
+                id: 'existing-phone-contact-66',
+                properties: {
+                  phone: '+15557778888',
+                },
+              },
+            ],
+          }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: 'existing-phone-contact-66',
+            properties: {
+              phone: '+15557778888',
+              firstname: 'Phone',
+              lastname: 'Only',
+            },
+          }),
+        } as unknown as Response);
+
+      const result = await syncContactToHubSpot('token', {
+        name: 'Phone Only',
+        phone: '+15557778888',
+      });
+
+      expect(result.action).toBe('updated');
+      expect(result.hubspotContactId).toBe('existing-phone-contact-66');
       expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('checks phone when only phone is provided: creates new contact if phone not found', async () => {
+      // 1. POST search by phone -> returns 200 (total: 0)
+      // 2. POST create contact -> returns 201
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ total: 0, results: [] }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: 'new-phone-contact-77',
+            properties: {
+              phone: '+15559990000',
+              firstname: 'Phone',
+              lastname: 'User',
+            },
+          }),
+        } as unknown as Response);
+
+      const result = await syncContactToHubSpot('token', {
+        name: 'Phone User',
+        phone: '+15559990000',
+      });
+
+      expect(result.action).toBe('created');
+      expect(result.hubspotContactId).toBe('new-phone-contact-77');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('updates directly when hubspotContactId is provided', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'existing-cached-88',
+          properties: {
+            firstname: 'Cached',
+          },
+        }),
+      } as unknown as Response);
+
+      const result = await syncContactToHubSpot('token', {
+        hubspotContactId: 'existing-cached-88',
+        name: 'Cached Contact',
+        phone: '+15551112222',
+      });
+
+      expect(result.action).toBe('updated');
+      expect(result.hubspotContactId).toBe('existing-cached-88');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
     it('throws error when contact has neither email nor phone', async () => {
@@ -305,6 +464,72 @@ describe('HubSpot Integration Client', () => {
           name: 'No Contact Info',
         })
       ).rejects.toThrow('Contact must have an email or phone number');
+    });
+  });
+
+  describe('getPhoneSearchCandidates', () => {
+    it('generates candidates with and without leading +', () => {
+      const candidates = getPhoneSearchCandidates('+15551234567');
+      expect(candidates).toContain('+15551234567');
+      expect(candidates).toContain('15551234567');
+    });
+
+    it('generates candidates for numbers without leading +', () => {
+      const candidates = getPhoneSearchCandidates('15551234567');
+      expect(candidates).toContain('15551234567');
+      expect(candidates).toContain('+15551234567');
+    });
+
+    it('generates stripped digits for formatted numbers', () => {
+      const candidates = getPhoneSearchCandidates('+1 (555) 123-4567');
+      expect(candidates).toContain('+1 (555) 123-4567');
+      expect(candidates).toContain('15551234567');
+      expect(candidates).toContain('+15551234567');
+    });
+
+    it('returns empty array for empty or whitespace input', () => {
+      expect(getPhoneSearchCandidates('')).toEqual([]);
+      expect(getPhoneSearchCandidates('   ')).toEqual([]);
+    });
+  });
+
+  describe('findHubSpotContactByPhone', () => {
+    it('finds contact by phone via Search API with IN operator', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          total: 1,
+          results: [
+            {
+              id: 'hs-phone-found-1',
+              properties: {
+                phone: '+15551234567',
+                firstname: 'Alice',
+              },
+            },
+          ],
+        }),
+      } as unknown as Response);
+
+      const found = await findHubSpotContactByPhone('token', '+15551234567');
+      expect(found).not.toBeNull();
+      expect(found?.id).toBe('hs-phone-found-1');
+      expect(found?.properties.phone).toBe('+15551234567');
+    });
+
+    it('returns null when contact is not found by phone', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          total: 0,
+          results: [],
+        }),
+      } as unknown as Response);
+
+      const found = await findHubSpotContactByPhone('token', '+15550000000');
+      expect(found).toBeNull();
     });
   });
 

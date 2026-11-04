@@ -25,6 +25,7 @@ export interface HubSpotContactInput {
   name?: string | null;
   phone?: string | null;
   company?: string | null;
+  hubspotContactId?: string | null;
 }
 
 export interface HubSpotSyncResult {
@@ -170,30 +171,109 @@ export async function findHubSpotContactByEmail(
 }
 
 /**
+ * Generate candidate phone strings to maximize search matches across
+ * formatting differences (with/without leading '+', formatted parentheses/dashes vs digits).
+ */
+export function getPhoneSearchCandidates(phone: string): string[] {
+  const trimmed = phone?.trim();
+  if (!trimmed) return [];
+
+  const candidates = new Set<string>();
+  candidates.add(trimmed);
+
+  if (trimmed.startsWith('+')) {
+    const withoutPlus = trimmed.slice(1).trim();
+    if (withoutPlus) candidates.add(withoutPlus);
+  } else {
+    candidates.add(`+${trimmed}`);
+  }
+
+  // Also try digits-only variations (handles "+1 (555) 123-4567" -> "15551234567" and "+15551234567")
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly) {
+    candidates.add(digitsOnly);
+    candidates.add(`+${digitsOnly}`);
+  }
+
+  return Array.from(candidates);
+}
+
+/**
  * Check if a contact exists in HubSpot by phone number via Search API.
+ * Searches both `phone` and `mobilephone` properties using the `IN` operator across
+ * candidate format variations, with a resilient fallback.
  */
 export async function findHubSpotContactByPhone(
   token: string,
   phone: string
 ): Promise<HubSpotContact | null> {
-  const cleanPhone = phone.trim();
+  const cleanPhone = phone?.trim();
   if (!cleanPhone) return null;
 
-  const found = await searchHubSpotContact(token, 'phone', cleanPhone);
-  if (found) return found;
+  const candidates = getPhoneSearchCandidates(cleanPhone);
+  if (candidates.length === 0) return null;
 
-  // If phone had +, try without + or vice versa
-  if (cleanPhone.startsWith('+')) {
-    return await searchHubSpotContact(token, 'phone', cleanPhone.slice(1));
-  } else {
-    return await searchHubSpotContact(token, 'phone', `+${cleanPhone}`);
+  // 1. Primary search: query `phone` and `mobilephone` using `IN` with all candidate variations
+  try {
+    const res = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/search`, {
+      method: 'POST',
+      headers: getHeaders(token),
+      body: JSON.stringify({
+        filterGroups: [
+          {
+            filters: [
+              {
+                propertyName: 'phone',
+                operator: 'IN',
+                values: candidates,
+              },
+            ],
+          },
+          {
+            filters: [
+              {
+                propertyName: 'mobilephone',
+                operator: 'IN',
+                values: candidates,
+              },
+            ],
+          },
+        ],
+        properties: ['email', 'firstname', 'lastname', 'phone', 'mobilephone', 'company'],
+        limit: 1,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.total > 0 && Array.isArray(data.results) && data.results.length > 0) {
+        const item = data.results[0];
+        return {
+          id: String(item.id),
+          properties: item.properties || {},
+        };
+      }
+      return null;
+    }
+
+    // 2. Fallback: if search with `IN` operator returned non-OK HTTP status, try individual queries with `EQ`
+    for (const candidate of candidates) {
+      const foundPhone = await searchHubSpotContact(token, 'phone', candidate);
+      if (foundPhone) return foundPhone;
+      const foundMobile = await searchHubSpotContact(token, 'mobilephone', candidate);
+      if (foundMobile) return foundMobile;
+    }
+
+    return null;
+  } catch {
+    return null;
   }
 }
 
 /**
  * Search HubSpot contacts by an exact property match.
  */
-async function searchHubSpotContact(
+export async function searchHubSpotContact(
   token: string,
   propertyName: string,
   value: string
@@ -214,7 +294,7 @@ async function searchHubSpotContact(
             ],
           },
         ],
-        properties: ['email', 'firstname', 'lastname', 'phone', 'company'],
+        properties: ['email', 'firstname', 'lastname', 'phone', 'mobilephone', 'company'],
         limit: 1,
       }),
     });
@@ -233,8 +313,7 @@ async function searchHubSpotContact(
     }
 
     return null;
-  } catch (err) {
-    console.error('[hubspot] search error:', err);
+  } catch {
     return null;
   }
 }
@@ -273,7 +352,7 @@ export async function createHubSpotContact(
     };
   }
 
-  // 409 Conflict: Contact already exists with this email
+  // 409 Conflict: Contact already exists with this email or phone
   if (res.status === 409) {
     const body = await res.json().catch(() => null);
     // Message often contains "Contact already exists. Existing ID: 12345"
@@ -286,6 +365,13 @@ export async function createHubSpotContact(
 
     if (input.email) {
       return await updateHubSpotContact(token, input.email, input);
+    }
+
+    if (input.phone) {
+      const existingByPhone = await findHubSpotContactByPhone(token, input.phone);
+      if (existingByPhone) {
+        return await updateHubSpotContact(token, existingByPhone.id, input);
+      }
     }
   }
 
@@ -339,10 +425,12 @@ export async function updateHubSpotContact(
 
 /**
  * Core synchronization function:
- * 1. Checks if contact email already exists in HubSpot.
- * 2. If email exists: updates the existing contact in HubSpot.
- * 3. If email does not exist: creates a new contact in HubSpot.
- * 4. If email is not present, falls back to checking/creating by phone.
+ * 1. If hubspotContactId is provided, attempts to update that contact directly.
+ * 2. Checks if contact email already exists in HubSpot.
+ *    If email exists: updates the existing contact in HubSpot.
+ * 3. Checks if contact phone number exists in HubSpot (searching both phone and mobilephone).
+ *    If phone exists: updates the existing contact in HubSpot.
+ * 4. If neither email nor phone exists in HubSpot: creates a new contact in HubSpot.
  */
 export async function syncContactToHubSpot(
   token: string,
@@ -354,68 +442,76 @@ export async function syncContactToHubSpot(
 
   const email = contact.email?.trim() || null;
   const phone = contact.phone?.trim() || null;
+  const hubspotContactId = contact.hubspotContactId?.trim() || null;
 
-  if (!email && !phone) {
+  if (!email && !phone && !hubspotContactId) {
     throw new Error('Contact must have an email or phone number to sync with HubSpot.');
   }
 
-  // 1. If email exists, check HubSpot by email first
+  // 1. Direct ID update if known
+  if (hubspotContactId) {
+    try {
+      console.info(`[HubSpot] Updating contact by existing HubSpot ID: ${hubspotContactId}...`);
+      const updated = await updateHubSpotContact(token, hubspotContactId, contact);
+      console.info(`[HubSpot] ✓ Contact updated in HubSpot by ID (ID: ${updated.id})`);
+      return {
+        action: 'updated',
+        hubspotContactId: updated.id,
+        email: contact.email || null,
+        properties: updated.properties,
+      };
+    } catch (idErr) {
+      console.warn(
+        `[HubSpot] Update by ID (${hubspotContactId}) failed, falling back to email/phone lookup:`,
+        idErr
+      );
+    }
+  }
+
+  let existing: HubSpotContact | null = null;
+
+  // 2. Check HubSpot by email first if email is provided
   if (email) {
     console.info(`[HubSpot] Checking if contact exists in HubSpot for email: "${email}"...`);
-    const existing = await findHubSpotContactByEmail(token, email);
+    existing = await findHubSpotContactByEmail(token, email);
     if (existing) {
-      // Email exists in HubSpot -> UPDATE contact
-      console.info(`[HubSpot] Contact exists in HubSpot (ID: ${existing.id}). Updating contact...`);
-      const updated = await updateHubSpotContact(token, existing.id, contact);
-      console.info(`[HubSpot] ✓ Contact updated in HubSpot (ID: ${updated.id})`);
-      return {
-        action: 'updated',
-        hubspotContactId: updated.id,
-        email,
-        properties: updated.properties,
-      };
+      console.info(`[HubSpot] Contact exists in HubSpot by email (ID: ${existing.id}). Updating contact...`);
     }
+  }
 
-    // Email does not exist in HubSpot -> CREATE contact
-    console.info(`[HubSpot] Contact does not exist with email "${email}". Creating new contact in HubSpot...`);
-    const created = await createHubSpotContact(token, contact);
-    console.info(`[HubSpot] ✓ Contact created in HubSpot (ID: ${created.id})`);
+  // 3. If contact was not found by email, check HubSpot by phone number
+  if (!existing && phone) {
+    console.info(`[HubSpot] Checking if contact exists in HubSpot for phone: "${phone}"...`);
+    existing = await findHubSpotContactByPhone(token, phone);
+    if (existing) {
+      console.info(`[HubSpot] Contact exists in HubSpot by phone (ID: ${existing.id}). Updating contact...`);
+    }
+  }
+
+  // 4. If contact was found (by email or phone), UPDATE existing contact
+  if (existing) {
+    const updated = await updateHubSpotContact(token, existing.id, contact);
+    console.info(`[HubSpot] ✓ Contact updated in HubSpot (ID: ${updated.id})`);
     return {
-      action: 'created',
-      hubspotContactId: created.id,
-      email,
-      properties: created.properties,
+      action: 'updated',
+      hubspotContactId: updated.id,
+      email: contact.email || null,
+      properties: updated.properties,
     };
   }
 
-  // 2. If no email, check by phone
-  if (phone) {
-    console.info(`[HubSpot] No email provided. Searching HubSpot by phone: "${phone}"...`);
-    const existingByPhone = await findHubSpotContactByPhone(token, phone);
-    if (existingByPhone) {
-      console.info(`[HubSpot] Contact exists in HubSpot by phone (ID: ${existingByPhone.id}). Updating...`);
-      const updated = await updateHubSpotContact(token, existingByPhone.id, contact);
-      console.info(`[HubSpot] ✓ Contact updated in HubSpot (ID: ${updated.id})`);
-      return {
-        action: 'updated',
-        hubspotContactId: updated.id,
-        email: null,
-        properties: updated.properties,
-      };
-    }
-
-    console.info(`[HubSpot] Contact not found by phone. Creating new contact in HubSpot with phone "${phone}"...`);
-    const created = await createHubSpotContact(token, contact);
-    console.info(`[HubSpot] ✓ Contact created in HubSpot (ID: ${created.id})`);
-    return {
-      action: 'created',
-      hubspotContactId: created.id,
-      email: null,
-      properties: created.properties,
-    };
-  }
-
-  throw new Error('Unable to sync contact to HubSpot.');
+  // 5. Contact does not exist in HubSpot by email or phone -> CREATE new contact
+  console.info(
+    `[HubSpot] Contact not found by email ("${email || 'N/A'}") or phone ("${phone || 'N/A'}"). Creating new contact in HubSpot...`
+  );
+  const created = await createHubSpotContact(token, contact);
+  console.info(`[HubSpot] ✓ Contact created in HubSpot (ID: ${created.id})`);
+  return {
+    action: 'created',
+    hubspotContactId: created.id,
+    email: contact.email || null,
+    properties: created.properties,
+  };
 }
 
 /**

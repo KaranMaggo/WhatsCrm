@@ -390,7 +390,7 @@ export function HubSpotSettings() {
                     Sync on WhatsApp Message Received
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Automatically checks if contact email exists in HubSpot (updates if existing, creates if new) when an inbound WhatsApp message arrives.
+                    Automatically checks if contact exists in HubSpot by email or phone (updates if existing, creates if new) when an inbound WhatsApp message arrives.
                   </p>
                 </div>
                 <Switch
@@ -489,7 +489,7 @@ export function HubSpotSettings() {
                   <Send className="size-3.5 text-primary" />
                   Test Sync Contact to HubSpot
                 </h4>
-                <span className="text-xs text-muted-foreground">Checks email first: updates if exists, creates if new</span>
+                <span className="text-xs text-muted-foreground">Checks email and phone: updates if exists in HubSpot, creates if new</span>
               </div>
               <form onSubmit={handleRunTestSync} className="grid sm:grid-cols-3 gap-3">
                 <div>
