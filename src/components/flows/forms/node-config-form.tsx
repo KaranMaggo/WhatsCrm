@@ -77,7 +77,8 @@ export function NodeConfigForm({
         />
       );
 
-    case "send_message":
+    case "send_message": {
+      const isWait = (cfg as { wait_for_reply?: boolean }).wait_for_reply === true;
       return (
         <>
           <TextRow
@@ -85,16 +86,60 @@ export function NodeConfigForm({
             value={(cfg as { text?: string }).text ?? ""}
             onChange={(v) => onUpdateConfig({ text: v })}
             rows={3}
+            showVariables
           />
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                id={`wait_for_reply_${node.node_key}`}
+                checked={isWait}
+                onChange={(e) =>
+                  onUpdateConfig({ wait_for_reply: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+              />
+              <div className="flex-1 text-xs">
+                <label
+                  htmlFor={`wait_for_reply_${node.node_key}`}
+                  className="font-medium text-foreground cursor-pointer select-none"
+                >
+                  {t("waitForReplyLabel")}
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {t("waitForReplyHelp")}
+                </p>
+              </div>
+            </div>
+
+            {isWait && (
+              <div className="pt-2 border-t border-border/50">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  {t("saveReplyVarLabel")}
+                </label>
+                <Input
+                  value={(cfg as { var_key?: string }).var_key ?? ""}
+                  onChange={(e) =>
+                    onUpdateConfig({
+                      var_key: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+                    })
+                  }
+                  placeholder={t("varKeyPlaceholder")}
+                  className="bg-muted font-mono text-xs mt-1"
+                />
+              </div>
+            )}
+          </div>
           <NextNodeRow
             value={(cfg as { next_node_key?: string }).next_node_key ?? ""}
             allNodes={allNodes}
             currentKey={node.node_key}
             onChange={(v) => onUpdateConfig({ next_node_key: v })}
-            label={t("advancesTo")}
+            label={isWait ? t("advanceOnReply") : t("advancesTo")}
           />
         </>
       );
+    }
 
     case "send_buttons":
       return (
@@ -139,6 +184,7 @@ export function NodeConfigForm({
             value={(cfg as { prompt_text?: string }).prompt_text ?? ""}
             onChange={(v) => onUpdateConfig({ prompt_text: v })}
             rows={2}
+            showVariables
           />
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
@@ -310,6 +356,7 @@ function SendButtonsForm({
         value={cfg.text ?? ""}
         onChange={(v) => onUpdateConfig({ text: v })}
         rows={3}
+        showVariables
       />
       <TextRow
         label={t("footerText")}
@@ -501,6 +548,7 @@ function SendListForm({
         value={cfg.text ?? ""}
         onChange={(v) => onUpdateConfig({ text: v })}
         rows={3}
+        showVariables
       />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextRow
@@ -638,7 +686,7 @@ interface ConditionCfg {
   false_next?: string;
 }
 
-interface UserTag {
+export interface UserTag {
   id: string;
   name: string;
   color?: string;
@@ -882,7 +930,7 @@ function SetTagForm({
  * Falls back to raw UUID input if the endpoint is absent on older
  * deployments — the form remains authorable in that case.
  */
-function useUserTags(): UserTag[] {
+export function useUserTags(): UserTag[] {
   const [tags, setTags] = useState<UserTag[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -913,6 +961,8 @@ interface SendMediaCfg {
   caption?: string;
   filename?: string;
   next_node_key?: string;
+  wait_for_reply?: boolean;
+  var_key?: string;
 }
 
 // Mirrors the bucket's allowed_mime_types from migration 016. Kept in
@@ -1077,6 +1127,7 @@ function SendMediaForm({
         value={cfg.caption ?? ""}
         onChange={(v) => onUpdateConfig({ caption: v })}
         rows={2}
+        showVariables
       />
 
       {isDocument && (
@@ -1093,12 +1144,55 @@ function SendMediaForm({
         </div>
       )}
 
+      <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+        <div className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            id={`media_wait_for_reply_${currentKey}`}
+            checked={cfg.wait_for_reply === true}
+            onChange={(e) =>
+              onUpdateConfig({ wait_for_reply: e.target.checked })
+            }
+            className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+          />
+          <div className="flex-1 text-xs">
+            <label
+              htmlFor={`media_wait_for_reply_${currentKey}`}
+              className="font-medium text-foreground cursor-pointer select-none"
+            >
+              {t("waitForReplyLabel")}
+            </label>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {t("waitForReplyHelp")}
+            </p>
+          </div>
+        </div>
+
+        {cfg.wait_for_reply && (
+          <div className="pt-2 border-t border-border/50">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              {t("saveReplyVarLabel")}
+            </label>
+            <Input
+              value={cfg.var_key ?? ""}
+              onChange={(e) =>
+                onUpdateConfig({
+                  var_key: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+                })
+              }
+              placeholder={t("varKeyPlaceholder")}
+              className="bg-muted font-mono text-xs mt-1"
+            />
+          </div>
+        )}
+      </div>
+
       <NextNodeRow
         value={cfg.next_node_key ?? ""}
         allNodes={allNodes}
         currentKey={currentKey}
         onChange={(v) => onUpdateConfig({ next_node_key: v })}
-        label={t("advanceAfterSending")}
+        label={cfg.wait_for_reply ? t("advanceOnReply") : t("advanceAfterSending")}
       />
     </>
   );

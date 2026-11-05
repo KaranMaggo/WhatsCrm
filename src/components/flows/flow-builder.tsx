@@ -58,7 +58,7 @@ import {
   type BuilderNode,
   type NodeType,
 } from './shared';
-import { NodeConfigForm } from './forms/node-config-form';
+import { NodeConfigForm, useUserTags } from './forms/node-config-form';
 import { NodeKeySelect } from './forms/fields';
 import { IssueLine } from './validation-panel';
 import { useFlowEditor, type BuilderState } from './flow-editor-state';
@@ -272,6 +272,8 @@ function TriggerPanel({
   triggerIssues: ValidationIssue[];
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tags = useUserTags();
+
   return (
     <section className="border-border bg-card rounded-lg border p-4">
       <h2 className="text-foreground mb-3 text-sm font-semibold">{t('triggerTitle')}</h2>
@@ -287,7 +289,13 @@ function TriggerPanel({
                 ...s,
                 trigger_type: v as BuilderState['trigger_type'],
                 trigger_config:
-                  v === 'keyword' ? { keywords: [] } : v === 'manual' ? {} : {},
+                  v === 'keyword'
+                    ? { keywords: [] }
+                    : v === 'tag_added' || v === 'tag_removed'
+                    ? { tag_id: '' }
+                    : v === 'contact_property'
+                    ? { property: 'email', operator: 'any_change' }
+                    : {},
               }))
             }
           >
@@ -301,12 +309,31 @@ function TriggerPanel({
               <SelectItem value="first_inbound_message">
                 {t('triggerFirstInboundTitle')}
               </SelectItem>
+              <SelectItem value="tag_added">
+                {t('triggerTagAddedTitle')}
+              </SelectItem>
+              <SelectItem value="tag_removed">
+                {t('triggerTagRemovedTitle')}
+              </SelectItem>
+              <SelectItem value="contact_property">
+                {t('triggerContactPropertyTitle')}
+              </SelectItem>
+              <SelectItem value="new_contact_created">
+                {t('triggerNewContactTitle')}
+              </SelectItem>
+              <SelectItem value="new_message_received">
+                {t('triggerNewMessageTitle')}
+              </SelectItem>
+              <SelectItem value="conversation_assigned">
+                {t('triggerConversationAssignedTitle')}
+              </SelectItem>
               <SelectItem value="manual">
                 {t('triggerManualTitle')}
               </SelectItem>
             </SelectContent>
           </Select>
         </div>
+
         {state.trigger_type === 'keyword' && (
           <div>
             <label className="text-muted-foreground mb-1 block text-xs">
@@ -325,6 +352,184 @@ function TriggerPanel({
                 }))
               }
               t={t}
+            />
+          </div>
+        )}
+
+        {(state.trigger_type === 'tag_added' || state.trigger_type === 'tag_removed') && (
+          <div>
+            <label className="text-muted-foreground mb-1 block text-xs">
+              {t('tagLabel')}
+            </label>
+            {tags.length > 0 ? (
+              <Select
+                value={(state.trigger_config.tag_id as string) || '_any'}
+                onValueChange={(v) => {
+                  const selectedTag = tags.find((tg) => tg.id === v);
+                  setState((s) => ({
+                    ...s,
+                    trigger_config: {
+                      ...s.trigger_config,
+                      tag_id: v === '_any' ? '' : v,
+                      tag_name: selectedTag?.name || (v === '_any' ? 'Any' : ''),
+                    },
+                  }));
+                }}
+              >
+                <SelectTrigger className="bg-muted">
+                  <SelectValue placeholder={t('tagPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_any">{t('anyTagOption')}</SelectItem>
+                  {tags.map((tg) => (
+                    <SelectItem key={tg.id} value={tg.id}>
+                      <span className="flex items-center gap-1.5">
+                        {tg.color && (
+                          <span
+                            className="size-2 rounded-full inline-block"
+                            style={{ backgroundColor: tg.color }}
+                          />
+                        )}
+                        {tg.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={(state.trigger_config.tag_id as string) ?? ''}
+                onChange={(e) =>
+                  setState((s) => ({
+                    ...s,
+                    trigger_config: { ...s.trigger_config, tag_id: e.target.value },
+                  }))
+                }
+                placeholder={t('tagUuidPlaceholder')}
+                className="bg-muted text-xs"
+              />
+            )}
+          </div>
+        )}
+
+        {state.trigger_type === 'contact_property' && (
+          <div className="space-y-2 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div>
+              <label className="text-muted-foreground mb-1 block text-xs">
+                {t('propertyLabel')}
+              </label>
+              <Select
+                value={
+                  ['name', 'email', 'phone', 'company', 'hubspot_contact_id'].includes(
+                    String(state.trigger_config.property ?? '')
+                  )
+                    ? String(state.trigger_config.property)
+                    : '_custom'
+                }
+                onValueChange={(v) => {
+                  setState((s) => ({
+                    ...s,
+                    trigger_config: {
+                      ...s.trigger_config,
+                      property: v === '_custom' ? '' : v,
+                    },
+                  }));
+                }}
+              >
+                <SelectTrigger className="bg-muted text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="email">Email</SelectItem>
+                  <SelectItem value="phone">Phone</SelectItem>
+                  <SelectItem value="name">Full Name</SelectItem>
+                  <SelectItem value="company">Company</SelectItem>
+                  <SelectItem value="hubspot_contact_id">HubSpot Contact ID</SelectItem>
+                  <SelectItem value="_custom">Custom Field / Other</SelectItem>
+                </SelectContent>
+              </Select>
+              {(!['name', 'email', 'phone', 'company', 'hubspot_contact_id'].includes(
+                String(state.trigger_config.property ?? '')
+              ) || state.trigger_config.property === '') && (
+                <Input
+                  value={(state.trigger_config.property as string) ?? ''}
+                  onChange={(e) =>
+                    setState((s) => ({
+                      ...s,
+                      trigger_config: { ...s.trigger_config, property: e.target.value },
+                    }))
+                  }
+                  placeholder={t('propertyPlaceholder')}
+                  className="bg-muted text-xs mt-1"
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="text-muted-foreground mb-1 block text-xs">
+                {t('propertyOperatorLabel')}
+              </label>
+              <Select
+                value={(state.trigger_config.operator as string) || 'any_change'}
+                onValueChange={(v) =>
+                  setState((s) => ({
+                    ...s,
+                    trigger_config: { ...s.trigger_config, operator: v },
+                  }))
+                }
+              >
+                <SelectTrigger className="bg-muted text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any_change">{t('opAnyChange')}</SelectItem>
+                  <SelectItem value="equals">{t('opEquals')}</SelectItem>
+                  <SelectItem value="not_equals">{t('opNotEquals')}</SelectItem>
+                  <SelectItem value="contains">{t('opContains')}</SelectItem>
+                  <SelectItem value="is_set">{t('opIsSet')}</SelectItem>
+                  <SelectItem value="is_not_set">{t('opIsNotSet')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {['equals', 'not_equals', 'contains'].includes(
+              (state.trigger_config.operator as string) || ''
+            ) && (
+              <div>
+                <label className="text-muted-foreground mb-1 block text-xs">
+                  {t('propertyValueLabel')}
+                </label>
+                <Input
+                  value={(state.trigger_config.value as string) ?? ''}
+                  onChange={(e) =>
+                    setState((s) => ({
+                      ...s,
+                      trigger_config: { ...s.trigger_config, value: e.target.value },
+                    }))
+                  }
+                  placeholder="e.g. VIP, active, example.com"
+                  className="bg-muted text-xs"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {state.trigger_type === 'conversation_assigned' && (
+          <div>
+            <label className="text-muted-foreground mb-1 block text-xs">
+              Agent ID (optional)
+            </label>
+            <Input
+              value={(state.trigger_config.agent_id as string) ?? ''}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  trigger_config: { ...s.trigger_config, agent_id: e.target.value },
+                }))
+              }
+              placeholder="Leave empty for any agent assignment"
+              className="bg-muted text-xs"
             />
           </div>
         )}

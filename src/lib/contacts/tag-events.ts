@@ -63,5 +63,17 @@ export async function addContactTagAndDispatch(
     },
   });
 
+  try {
+    const { dispatchTriggerToFlows } = await import('@/lib/flows/engine');
+    await dispatchTriggerToFlows({
+      accountId: input.accountId,
+      triggerType: 'tag_added',
+      contactId: input.contactId,
+      context: { tag_id: input.tagId },
+    });
+  } catch (flowErr) {
+    console.warn('[flows] tag_added dispatch failed:', flowErr);
+  }
+
   return { added: true, dispatched: true };
 }

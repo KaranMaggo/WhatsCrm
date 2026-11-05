@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // so the vi.mock factory below can close over it.
 const h = vi.hoisted(() => ({
   state: {
-    owned: null as { id: string } | null,
+    owned: null as { id: string; [key: string]: unknown } | null,
     ownedCustomField: null as { id: string } | null,
     /** Row the account-scoped `conversations` lookup resolves. */
     ownedConversation: null as { id: string } | null,
@@ -358,6 +358,29 @@ describe("update_contact_field — custom fields", () => {
     expect(
       (h.state.upsertCalls[0].payload as { value: string }).value,
     ).toBe("WhatsApp Ad");
+  });
+
+  it("interpolates {{ contact.name }} and {{ first_name }} into the custom value", async () => {
+    h.state.owned = {
+      id: "c1",
+      name: "Marcus Aurelius",
+      phone: "+15551234567",
+    };
+    h.state.ownedCustomField = { id: "cf1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [customStep("custom:cf1", "Greeting for {{ contact.first_name }} ({{ contact.name }})")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(h.state.upsertCalls).toHaveLength(1);
+    expect(
+      (h.state.upsertCalls[0].payload as { value: string }).value,
+    ).toBe("Greeting for Marcus (Marcus Aurelius)");
   });
 
   it("refuses to write a custom field from another account", async () => {

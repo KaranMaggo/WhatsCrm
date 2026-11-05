@@ -46,6 +46,8 @@ export interface AutomationContext {
   agent_id?: string
   /** Button / list-row id the customer tapped, for interactive_reply. */
   interactive_reply_id?: string
+  /** Contact variables loaded for message interpolation. */
+  contact?: Record<string, string>
 }
 
 export interface DispatchInput {
@@ -419,6 +421,36 @@ type ScopeOutcome = 'completed' | 'suspended' | 'failed'
 
 async function executeStepsFrom(args: ExecuteArgs): Promise<ScopeOutcome> {
   const db = supabaseAdmin()
+
+  if (args.contactId && !args.context.contact) {
+    try {
+      const { data: c } = await db
+        .from('contacts')
+        .select('name, phone, email, company')
+        .eq('id', args.contactId)
+        .maybeSingle()
+      if (c) {
+        const contactRow = c as {
+          name?: string | null
+          phone?: string | null
+          email?: string | null
+          company?: string | null
+        }
+        const name = (contactRow.name ?? '').trim()
+        const parts = name.split(/\s+/).filter(Boolean)
+        args.context.contact = {
+          name,
+          first_name: parts[0] ?? '',
+          last_name: parts.slice(1).join(' ') ?? '',
+          phone: (contactRow.phone ?? '').trim(),
+          email: (contactRow.email ?? '').trim(),
+          company: (contactRow.company ?? '').trim(),
+        }
+      }
+    } catch (err) {
+      console.warn('[automations] contact loading error:', err)
+    }
+  }
 
   const baseQuery = db
     .from('automation_steps')
@@ -1087,10 +1119,28 @@ function waitMs(cfg: WaitStepConfig): number {
 }
 
 function interpolate(s: string, args: ExecuteArgs): string {
+  const contact = args.context.contact ?? {}
   return s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
-    const [ns, prop] = String(key).split('.')
+    const raw = String(key).trim()
+    const [ns, prop] = raw.split('.')
     if (ns === 'message' && prop === 'text') return String(args.context.message_text ?? '')
-    if (ns === 'vars' && prop) return String(args.context.vars?.[prop] ?? '')
+    if ((ns === 'vars' || ns === 'var') && prop) return String(args.context.vars?.[prop] ?? '')
+    if (ns === 'contact' && prop) {
+      const field = raw.slice('contact.'.length).replace(/^custom\./, '')
+      const val = contact[field] ?? contact[field.toLowerCase()]
+      return val === undefined || val === null ? '' : String(val)
+    }
+    // Bare keys
+    if (contact[raw] !== undefined && contact[raw] !== null) {
+      return String(contact[raw])
+    }
+    const lower = raw.toLowerCase()
+    if (contact[lower] !== undefined && contact[lower] !== null) {
+      return String(contact[lower])
+    }
+    if (args.context.vars?.[raw] !== undefined && args.context.vars?.[raw] !== null) {
+      return String(args.context.vars[raw])
+    }
     return ''
   })
 }

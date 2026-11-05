@@ -957,7 +957,20 @@ async function processMessage(
   // manually-imported contacts sending for the first time. We dispatch both
   // so users can pick whichever semantic they want; an automation that
   // listens to only one trigger runs only when that trigger matches.
-  if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
+  if (contactOutcome.wasCreated) {
+    automationTriggers.unshift('new_contact_created')
+    try {
+      const { dispatchTriggerToFlows } = await import('@/lib/flows/engine')
+      await dispatchTriggerToFlows({
+        accountId,
+        triggerType: 'new_contact_created',
+        contactId: contactRecord.id,
+        conversationId: conversation.id,
+      })
+    } catch (flowErr) {
+      console.warn('[flows] new_contact_created dispatch error:', flowErr)
+    }
+  }
   if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
   // Awaited — not fire-and-forget. We're inside the route's `after()`
   // block, which only keeps the function alive for promises it can see, so

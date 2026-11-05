@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
+import type { FlowTriggerType } from '@/lib/flows/types'
 import { getT } from '@/lib/i18n/translate'
 
 const t = getT('Api')
@@ -77,7 +78,7 @@ export async function GET(
 interface PutBody {
   name?: string
   description?: string | null
-  trigger_type?: 'keyword' | 'first_inbound_message' | 'manual'
+  trigger_type?: FlowTriggerType
   trigger_config?: Record<string, unknown>
   entry_node_id?: string | null
   fallback_policy?: Record<string, unknown>

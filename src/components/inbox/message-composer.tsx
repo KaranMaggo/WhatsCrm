@@ -29,6 +29,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -53,7 +55,7 @@ import {
   blankButtonsPayload,
 } from "@/components/interactive/interactive-builder";
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
-import type { InteractiveMessagePayload, QuickReply } from "@/types";
+import type { Contact, InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
 
 /** Media content types an agent can send from the composer. */
@@ -111,6 +113,7 @@ interface MediaDraft {
 
 interface MessageComposerProps {
   conversationId: string;
+  contact?: Contact;
   sessionExpired: boolean;
   onSend: (text: string, replyToId?: string) => void;
   onSendMedia: (payload: SendMediaPayload) => void;
@@ -118,6 +121,40 @@ interface MessageComposerProps {
   onOpenTemplates: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+}
+
+function interpolateContactText(s: string, contact?: Contact | null): string {
+  if (!s || !contact) return s;
+  const name = (contact.name ?? "").trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] ?? "";
+  const lastName = parts.slice(1).join(" ") ?? "";
+  const phone = (contact.phone ?? "").trim();
+  const email = (contact.email ?? "").trim();
+  const company = (contact.company ?? "").trim();
+
+  const map: Record<string, string> = {
+    "contact.name": name,
+    "contact.first_name": firstName,
+    "contact.last_name": lastName,
+    "contact.phone": phone,
+    "contact.email": email,
+    "contact.company": company,
+    name,
+    first_name: firstName,
+    last_name: lastName,
+    phone,
+    email,
+    company,
+  };
+
+  return s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, key: string) => {
+    const raw = key.trim();
+    if (map[raw] !== undefined) return map[raw];
+    const lower = raw.toLowerCase();
+    if (map[lower] !== undefined) return map[lower];
+    return match;
+  });
 }
 
 function formatDuration(seconds: number): string {
@@ -133,6 +170,7 @@ const OPUS_ENCODER_PATH = "/opus/encoderWorker.min.js";
 
 export function MessageComposer({
   conversationId,
+  contact,
   sessionExpired,
   onSend,
   onSendMedia,
@@ -222,12 +260,13 @@ export function MessageComposer({
   }, []);
 
   const handleSend = useCallback(async () => {
-    const trimmed = text.trim();
-    if (!trimmed || sending || sessionExpired) return;
+    const raw = text.trim();
+    if (!raw || sending || sessionExpired) return;
+    const resolved = interpolateContactText(raw, contact);
 
     setSending(true);
     try {
-      onSend(trimmed, replyTo?.id);
+      onSend(resolved, replyTo?.id);
       setText("");
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -235,7 +274,7 @@ export function MessageComposer({
     } finally {
       setSending(false);
     }
-  }, [text, sending, sessionExpired, onSend, replyTo?.id]);
+  }, [text, contact, sending, sessionExpired, onSend, replyTo?.id]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -364,7 +403,8 @@ export function MessageComposer({
         openInteractiveBuilder(qr.interactive_payload);
         return;
       }
-      const body = qr.content_text ?? "";
+      const rawBody = qr.content_text ?? "";
+      const body = interpolateContactText(rawBody, contact);
       // Separate the snippet from any existing draft with a newline so the
       // words don't run together ("Thanks" + "we'll…" → "Thankswe'll…").
       setText((prev) =>
@@ -379,7 +419,28 @@ export function MessageComposer({
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight],
+    [contact, openInteractiveBuilder, adjustHeight],
+  );
+
+  const insertVariable = useCallback(
+    (token: string) => {
+      const resolved = contact ? interpolateContactText(token, contact) : token;
+      const toInsert = resolved || token;
+      setText((prev) => {
+        const el = textareaRef.current;
+        if (el && typeof el.selectionStart === "number") {
+          const start = el.selectionStart;
+          const end = el.selectionEnd;
+          return prev.slice(0, start) + toInsert + prev.slice(end);
+        }
+        return prev && !/\s$/.test(prev) ? `${prev} ${toInsert}` : `${prev}${toInsert}`;
+      });
+      requestAnimationFrame(() => {
+        adjustHeight();
+        textareaRef.current?.focus();
+      });
+    },
+    [contact, adjustHeight],
   );
 
   // Upload a captured file to chat-media and stage it as a draft.
@@ -696,6 +757,26 @@ export function MessageComposer({
               <DropdownMenuItem onClick={() => setQuickReplyOpen(true)}>
                 <Zap className="mr-2 h-4 w-4" />
                 {t("quickReplies")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] uppercase font-semibold text-muted-foreground px-2 py-1">
+                {t("contactVariables")}
+              </DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => insertVariable("{{contact.name}}")}>
+                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
+                {t("insertName")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertVariable("{{contact.first_name}}")}>
+                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
+                {t("insertFirstName")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertVariable("{{contact.phone}}")}>
+                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
+                {t("insertPhone")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertVariable("{{contact.email}}")}>
+                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
+                {t("insertEmail")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

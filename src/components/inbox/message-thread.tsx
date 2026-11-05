@@ -1179,6 +1179,7 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
+        contact={conversation.contact}
         sessionExpired={sessionInfo.expired}
         onSend={handleSend}
         onSendMedia={handleSendMedia}

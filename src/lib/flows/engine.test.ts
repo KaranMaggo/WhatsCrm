@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
     activeRuns: [] as Record<string, unknown>[],
     flows: [] as unknown[],
     nodes: [] as unknown[],
+    contacts: [] as Record<string, unknown>[],
+    customValues: [] as Record<string, unknown>[],
     /** flow_run_events INSERTs (what logEvent wrote). */
     events: [] as Record<string, unknown>[],
     /** Every UPDATE, by table. */
@@ -37,6 +39,8 @@ vi.mock("./admin-client", () => {
     if (table === "flow_runs") return h.state.activeRuns;
     if (table === "flows") return h.state.flows;
     if (table === "flow_nodes") return h.state.nodes;
+    if (table === "contacts") return h.state.contacts;
+    if (table === "contact_custom_values") return h.state.customValues;
     return [];
   }
 
@@ -51,10 +55,19 @@ vi.mock("./admin-client", () => {
       limit: () => b,
       update: (row: Record<string, unknown>) => {
         h.state.updates.push({ table, row });
+        if (table === "flow_runs") {
+          for (const run of h.state.activeRuns) {
+            Object.assign(run, row);
+          }
+        }
         return b;
       },
       insert: (row: Record<string, unknown>) => {
         if (table === "flow_run_events") h.state.events.push(row);
+        if (table === "flow_runs") {
+          const runRow = { id: "run-new", vars: {}, status: "active", ...row };
+          h.state.activeRuns.push(runRow);
+        }
         return b;
       },
       maybeSingle: async () => ({ data: rows(table)[0] ?? null, error: null }),
@@ -87,16 +100,21 @@ vi.mock("./meta-send", () => ({
 
 import {
   dispatchInboundToFlows,
+  matchesTriggerConfig,
   matchReplyId,
   matchesKeywordTrigger,
   isAutoAdvancing,
   isSuspending,
   isTerminal,
   evaluateConditionPredicate,
+  interpolateVars,
+  loadContactVars,
 } from "./engine";
-import type {
-  engineSendInteractiveButtons,
-  engineSendInteractiveList,
+import {
+  engineSendText,
+  engineSendMedia,
+  type engineSendInteractiveButtons,
+  type engineSendInteractiveList,
 } from "./meta-send";
 import type { ParsedInbound } from "./types";
 
@@ -232,6 +250,119 @@ describe("matchesKeywordTrigger", () => {
     const cfg = { keywords: ["", "support", ""] };
     expect(matchesKeywordTrigger("support center", cfg)).toBe(true);
     expect(matchesKeywordTrigger("nope", cfg)).toBe(false);
+  });
+});
+
+describe("matchesTriggerConfig", () => {
+  it("matches tag_added and tag_removed for specific tag", () => {
+    expect(
+      matchesTriggerConfig("tag_added", { tag_id: "tag-1" }, { tag_id: "tag-1" }),
+    ).toBe(true);
+    expect(
+      matchesTriggerConfig("tag_added", { tag_id: "tag-1" }, { tag_id: "tag-2" }),
+    ).toBe(false);
+  });
+
+  it("matches tag_added and tag_removed for any tag when tag_id omitted", () => {
+    expect(
+      matchesTriggerConfig("tag_added", {}, { tag_id: "tag-anything" }),
+    ).toBe(true);
+    expect(
+      matchesTriggerConfig("tag_removed", { tag_id: "" }, { tag_id: "tag-anything" }),
+    ).toBe(true);
+  });
+
+  it("matches contact_property operators", () => {
+    // any_change
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "email", operator: "any_change" },
+        { property: "email", value: "foo@example.com" },
+      ),
+    ).toBe(true);
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "email", operator: "any_change" },
+        { property: "phone", value: "+123" },
+      ),
+    ).toBe(false);
+
+    // equals
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "company", operator: "equals", value: "Acme" },
+        { property: "company", value: "Acme" },
+      ),
+    ).toBe(true);
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "company", operator: "equals", value: "Acme" },
+        { property: "company", value: "Other" },
+      ),
+    ).toBe(false);
+
+    // contains
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "email", operator: "contains", value: "@acme.com" },
+        { property: "email", value: "john@acme.com" },
+      ),
+    ).toBe(true);
+
+    // is_set
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "hubspot_contact_id", operator: "is_set" },
+        { property: "hubspot_contact_id", value: "hs-123" },
+      ),
+    ).toBe(true);
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "hubspot_contact_id", operator: "is_set" },
+        { property: "hubspot_contact_id", value: "" },
+      ),
+    ).toBe(false);
+
+    // is_not_set
+    expect(
+      matchesTriggerConfig(
+        "contact_property",
+        { property: "hubspot_contact_id", operator: "is_not_set" },
+        { property: "hubspot_contact_id", value: null },
+      ),
+    ).toBe(true);
+  });
+
+  it("matches new_contact_created and new_message_received unconditionally", () => {
+    expect(matchesTriggerConfig("new_contact_created", {})).toBe(true);
+    expect(matchesTriggerConfig("new_message_received", {})).toBe(true);
+  });
+
+  it("matches conversation_assigned by agent", () => {
+    expect(
+      matchesTriggerConfig(
+        "conversation_assigned",
+        { agent_id: "agent-1" },
+        { agent_id: "agent-1" },
+      ),
+    ).toBe(true);
+    expect(
+      matchesTriggerConfig(
+        "conversation_assigned",
+        { agent_id: "agent-1" },
+        { agent_id: "agent-2" },
+      ),
+    ).toBe(false);
+    expect(
+      matchesTriggerConfig("conversation_assigned", {}, { agent_id: "agent-2" }),
+    ).toBe(true);
   });
 });
 
@@ -620,6 +751,359 @@ describe("send_buttons / send_list interpolate {{vars.*}} (#553)", () => {
         row: expect.objectContaining({
           status: "failed",
           end_reason: "send_buttons_failed",
+        }),
+      }),
+    );
+  });
+});
+
+describe("contact variables interpolation in messages", () => {
+  const contactVars = {
+    name: "Jane Elizabeth Doe",
+    first_name: "Jane",
+    last_name: "Elizabeth Doe",
+    phone: "+15551234567",
+    email: "jane.doe@example.com",
+    company: "Acme Widgets",
+    City: "San Francisco",
+    custom_City: "San Francisco",
+    city: "San Francisco",
+  };
+  const flowVars = {
+    order_id: "ORD-9901",
+    product: "Super Widget",
+  };
+
+  it("interpolates {{contact.name}}, {{contact.first_name}}, {{contact.phone}}, {{contact.email}}, {{contact.company}}", () => {
+    const template =
+      "Hello {{contact.name}}! We sent details to {{contact.email}} and phone {{contact.phone}} at {{contact.company}}.";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe(
+      "Hello Jane Elizabeth Doe! We sent details to jane.doe@example.com and phone +15551234567 at Acme Widgets.",
+    );
+  });
+
+  it("interpolates {{contact.first_name}} and {{contact.last_name}}", () => {
+    const template = "Welcome, {{contact.first_name}} {{contact.last_name}}!";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe("Welcome, Jane Elizabeth Doe!");
+  });
+
+  it("interpolates shorthand bare variables {{first_name}}, {{name}}, {{phone}}, {{email}}, {{company}}", () => {
+    const template = "Hi {{first_name}} ({{name}}), reach us at {{phone}} or {{email}}.";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe("Hi Jane (Jane Elizabeth Doe), reach us at +15551234567 or jane.doe@example.com.");
+  });
+
+  it("handles whitespace inside braces e.g. {{ contact.name }} and {{ vars.order_id }}", () => {
+    const template = "Hello {{ contact.first_name }}, your order is {{ vars.order_id }}.";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe("Hello Jane, your order is ORD-9901.");
+  });
+
+  it("interpolates custom contact fields {{contact.custom.City}} and {{contact.city}}", () => {
+    const template = "Deliver to {{contact.city}} or {{contact.custom.City}}.";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe("Deliver to San Francisco or San Francisco.");
+  });
+
+  it("coexists cleanly with flow runtime variables {{vars.*}}", () => {
+    const template =
+      "Hi {{contact.first_name}}, your {{vars.product}} ({{vars.order_id}}) is confirmed!";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe("Hi Jane, your Super Widget (ORD-9901) is confirmed!");
+  });
+
+  it("renders empty string for missing variables without throwing", () => {
+    const template = "Hi {{contact.nonexistent}}, order {{vars.missing}}!";
+    const result = interpolateVars(template, flowVars, contactVars);
+    expect(result).toBe("Hi , order !");
+  });
+
+  it("end-to-end: send_message node with contact variables receives loaded contact values", async () => {
+    h.state.contacts = [
+      {
+        id: "ct-1",
+        name: "Claire Hunter",
+        phone: "+15559876543",
+        email: "claire@example.com",
+        company: "Hunter Logistics",
+      },
+    ];
+    h.state.activeRuns = [];
+    h.state.flows = [
+      {
+        id: "flow-contact-test",
+        account_id: "acct-1",
+        user_id: "u-1",
+        status: "active",
+        trigger_type: "keyword",
+        trigger_config: { keywords: ["hello"] },
+        entry_node_id: "msg_1",
+        fallback_policy: {},
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    h.state.nodes = [
+      {
+        id: "n-msg",
+        flow_id: "flow-contact-test",
+        node_key: "msg_1",
+        node_type: "send_message",
+        config: {
+          text: "Hi {{contact.first_name}}, we have your phone as {{contact.phone}}!",
+          next_node_key: "n_end",
+        },
+      },
+      {
+        id: "n-end",
+        flow_id: "flow-contact-test",
+        node_key: "n_end",
+        node_type: "end",
+        config: {},
+      },
+    ];
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("hello"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(result).toMatchObject({ consumed: true, outcome: "completed" });
+    expect(engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactId: "ct-1",
+        text: "Hi Claire, we have your phone as +15559876543!",
+      }),
+    );
+  });
+});
+
+describe("wait_for_reply on send_message and send_media", () => {
+  beforeEach(() => {
+    h.state.contacts = [
+      {
+        id: "ct-1",
+        name: "Test Customer",
+        phone: "+15551234567",
+      },
+    ];
+    h.state.activeRuns = [];
+    h.state.events = [];
+    h.state.updates = [];
+    vi.clearAllMocks();
+  });
+
+  it("send_message with wait_for_reply: false auto-advances to completion immediately", async () => {
+    h.state.flows = [
+      {
+        id: "flow-auto",
+        account_id: "acct-1",
+        user_id: "u-1",
+        status: "active",
+        trigger_type: "keyword",
+        trigger_config: { keywords: ["auto"] },
+        entry_node_id: "msg_auto",
+        fallback_policy: {},
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    h.state.nodes = [
+      {
+        id: "n-msg",
+        flow_id: "flow-auto",
+        node_key: "msg_auto",
+        node_type: "send_message",
+        config: {
+          text: "Auto advancing message",
+          next_node_key: "end_auto",
+          wait_for_reply: false,
+        },
+      },
+      {
+        id: "n-end",
+        flow_id: "flow-auto",
+        node_key: "end_auto",
+        node_type: "end",
+        config: {},
+      },
+    ];
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("auto"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(result).toMatchObject({ consumed: true, outcome: "completed" });
+    expect(engineSendText).toHaveBeenCalledTimes(1);
+  });
+
+  it("send_message with wait_for_reply: true pauses flow and advances only on reply", async () => {
+    h.state.flows = [
+      {
+        id: "flow-wait",
+        account_id: "acct-1",
+        user_id: "u-1",
+        status: "active",
+        trigger_type: "keyword",
+        trigger_config: { keywords: ["wait"] },
+        entry_node_id: "msg_wait",
+        fallback_policy: {},
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    h.state.nodes = [
+      {
+        id: "n-msg",
+        flow_id: "flow-wait",
+        node_key: "msg_wait",
+        node_type: "send_message",
+        config: {
+          text: "What is your preference?",
+          next_node_key: "end_wait",
+          wait_for_reply: true,
+          var_key: "customer_pref",
+        },
+      },
+      {
+        id: "n-end",
+        flow_id: "flow-wait",
+        node_key: "end_wait",
+        node_type: "end",
+        config: {},
+      },
+    ];
+
+    // First message triggers the flow: sends text and pauses
+    const triggerResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("wait"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(triggerResult).toMatchObject({ consumed: true, outcome: "started" });
+    expect(engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "What is your preference?" }),
+    );
+
+    // Verify the run parked at msg_wait
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({ current_node_key: "msg_wait" }),
+      }),
+    );
+
+    // Second message from customer replies to the prompt
+    const replyResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("Option A"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(replyResult).toMatchObject({ consumed: true, outcome: "completed" });
+    // Variable was captured
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({
+          vars: expect.objectContaining({ customer_pref: "Option A" }),
+        }),
+      }),
+    );
+  });
+
+  it("send_media with wait_for_reply: true pauses flow and advances on reply", async () => {
+    h.state.flows = [
+      {
+        id: "flow-media-wait",
+        account_id: "acct-1",
+        user_id: "u-1",
+        status: "active",
+        trigger_type: "keyword",
+        trigger_config: { keywords: ["catalog"] },
+        entry_node_id: "media_node",
+        fallback_policy: {},
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    h.state.nodes = [
+      {
+        id: "n-media",
+        flow_id: "flow-media-wait",
+        node_key: "media_node",
+        node_type: "send_media",
+        config: {
+          media_type: "document",
+          media_url: "https://example.com/catalog.pdf",
+          caption: "Here is the catalog. Let us know what you want to order!",
+          next_node_key: "end_media",
+          wait_for_reply: true,
+          var_key: "order_item",
+        },
+      },
+      {
+        id: "n-end-m",
+        flow_id: "flow-media-wait",
+        node_key: "end_media",
+        node_type: "end",
+        config: {},
+      },
+    ];
+
+    const triggerResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("catalog"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(triggerResult).toMatchObject({ consumed: true, outcome: "started" });
+    expect(engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "document",
+        link: "https://example.com/catalog.pdf",
+      }),
+    );
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({ current_node_key: "media_node" }),
+      }),
+    );
+
+    // Customer replies with item code
+    const replyResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("Item #42"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(replyResult).toMatchObject({ consumed: true, outcome: "completed" });
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({
+          vars: expect.objectContaining({ order_item: "Item #42" }),
         }),
       }),
     );

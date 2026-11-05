@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { getFlowTemplate } from '@/lib/flows/templates'
+import type { FlowTriggerType } from '@/lib/flows/types'
 import { getT } from '@/lib/i18n/translate'
 
 const t = getT('Api')
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
     | {
         name?: string
         description?: string | null
-        trigger_type?: 'keyword' | 'first_inbound_message' | 'manual'
+        trigger_type?: FlowTriggerType
         trigger_config?: Record<string, unknown>
         /**
          * If set, clone the matching template's name + trigger +

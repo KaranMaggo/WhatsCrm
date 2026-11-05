@@ -52,7 +52,7 @@ import {
 import { useTranslations } from "next-intl";
 import { getT } from "@/lib/i18n/translate";
 import { unlinkNodeReferences } from "@/lib/flows/edges";
-import type { FlowNodeRow, FlowRow } from "@/lib/flows/types";
+import type { FlowNodeRow, FlowRow, FlowTriggerType } from "@/lib/flows/types";
 import { NODE_META, slugify, type BuilderNode, type NodeType } from "./shared";
 
 // ============================================================
@@ -62,7 +62,7 @@ import { NODE_META, slugify, type BuilderNode, type NodeType } from "./shared";
 export interface BuilderState {
   name: string;
   description: string;
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
+  trigger_type: FlowTriggerType;
   trigger_config: Record<string, unknown>;
   entry_node_id: string | null;
   status: FlowRow["status"];

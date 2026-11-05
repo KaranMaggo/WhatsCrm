@@ -36,15 +36,31 @@ export function TextRow({
   value,
   onChange,
   rows = 1,
+  showVariables = false,
+  variableOptions = [
+    { label: "Name", token: "{{contact.name}}" },
+    { label: "First name", token: "{{contact.first_name}}" },
+    { label: "Phone", token: "{{contact.phone}}" },
+    { label: "Email", token: "{{contact.email}}" },
+  ],
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   rows?: number;
+  showVariables?: boolean;
+  variableOptions?: Array<{ label: string; token: string }>;
 }) {
+  const insertToken = (token: string) => {
+    const sep = value && !/\s$/.test(value) ? " " : "";
+    onChange(`${value}${sep}${token}`);
+  };
+
   return (
     <div>
-      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <div className="mb-1 flex items-center justify-between">
+        <label className="block text-xs text-muted-foreground">{label}</label>
+      </div>
       {rows > 1 ? (
         <Textarea
           value={value}
@@ -58,6 +74,24 @@ export function TextRow({
           onChange={(e) => onChange(e.target.value)}
           className="bg-muted"
         />
+      )}
+      {showVariables && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-[10px] uppercase font-semibold text-muted-foreground/70">
+            Insert:
+          </span>
+          {variableOptions.map((opt) => (
+            <button
+              key={opt.token}
+              type="button"
+              onClick={() => insertToken(opt.token)}
+              className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground hover:bg-accent hover:text-accent-foreground transition-colors border border-border/50"
+              title={`Insert ${opt.token}`}
+            >
+              {opt.token}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -69,6 +69,18 @@ export async function DELETE(
       tagId,
     });
 
+    try {
+      const { dispatchTriggerToFlows } = await import('@/lib/flows/engine');
+      await dispatchTriggerToFlows({
+        accountId: ctx.accountId,
+        triggerType: 'tag_removed',
+        contactId,
+        context: { tag_id: tagId },
+      });
+    } catch (flowErr) {
+      console.warn('[flows] tag_removed dispatch error:', flowErr);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof ContactTagWriteError) {

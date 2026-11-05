@@ -25,6 +25,7 @@
 
 import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/meta-api";
 import { getT } from "@/lib/i18n/translate";
+import type { FlowTriggerType } from "./types";
 
 const t = getT("Validation.flows");
 
@@ -40,7 +41,7 @@ export interface ValidationIssue {
 
 interface FlowInput {
   name: string;
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
+  trigger_type: FlowTriggerType;
   trigger_config: Record<string, unknown>;
   entry_node_id: string | null;
 }
@@ -175,8 +176,17 @@ function validateTrigger(
         });
       }
     }
+  } else if (trigger_type === "contact_property") {
+    const prop = typeof trigger_config.property === "string" ? trigger_config.property.trim() : "";
+    if (!prop) {
+      issues.push({
+        severity: "error",
+        scope: "trigger",
+        field: "trigger_config.property",
+        message: "Contact property name is required (e.g. email, phone, company, or custom field).",
+      });
+    }
   }
-  // first_inbound_message / manual have no config; nothing to validate.
 
   return issues;
 }
@@ -215,7 +225,12 @@ function validateNode(
     }
 
     case "send_message": {
-      const cfg = node.config as { text?: string; next_node_key?: string };
+      const cfg = node.config as {
+        text?: string;
+        next_node_key?: string;
+        wait_for_reply?: boolean;
+        var_key?: string;
+      };
       if (!cfg.text?.trim()) {
         issues.push({
           severity: "error",
@@ -241,6 +256,17 @@ function validateNode(
           field: "next_node_key",
           message: t("sendMessageMissingNext", { key: cfg.next_node_key }),
         });
+      }
+      if (cfg.wait_for_reply && cfg.var_key?.trim()) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(cfg.var_key.trim())) {
+          issues.push({
+            severity: "error",
+            scope: "node",
+            node_key: node.node_key,
+            field: "var_key",
+            message: t("invalidVarKey", { key: cfg.var_key }),
+          });
+        }
       }
       break;
     }
@@ -300,6 +326,18 @@ function validateNode(
           field: "next_node_key",
           message: t("sendMediaMissingNext", { key: cfg.next_node_key }),
         });
+      }
+      const mediaCfg = node.config as { wait_for_reply?: boolean; var_key?: string };
+      if (mediaCfg.wait_for_reply && mediaCfg.var_key?.trim()) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(mediaCfg.var_key.trim())) {
+          issues.push({
+            severity: "error",
+            scope: "node",
+            node_key: node.node_key,
+            field: "var_key",
+            message: t("invalidVarKey", { key: mediaCfg.var_key }),
+          });
+        }
       }
       break;
     }

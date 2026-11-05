@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { useTranslations } from "next-intl";
+import type { FlowTriggerType } from "@/lib/flows/types";
 import { useCan } from "@/hooks/use-can";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -47,8 +48,8 @@ interface FlowRow {
   name: string;
   description: string | null;
   status: "draft" | "active" | "archived";
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
-  trigger_config: { keywords?: string[] } | Record<string, unknown>;
+  trigger_type: FlowTriggerType;
+  trigger_config: Record<string, unknown>;
   execution_count: number;
   last_executed_at: string | null;
   created_at: string;
@@ -437,6 +438,27 @@ function describeTrigger(flow: FlowRow, t: ReturnType<typeof useTranslations>): 
   }
   if (flow.trigger_type === "first_inbound_message") {
     return t("triggerFirstInbound");
+  }
+  if (flow.trigger_type === "tag_added") {
+    const tag = (flow.trigger_config.tag_name as string) || (flow.trigger_config.tag_id as string) || "any";
+    return t("triggerTagAdded", { tag });
+  }
+  if (flow.trigger_type === "tag_removed") {
+    const tag = (flow.trigger_config.tag_name as string) || (flow.trigger_config.tag_id as string) || "any";
+    return t("triggerTagRemoved", { tag });
+  }
+  if (flow.trigger_type === "contact_property") {
+    const prop = (flow.trigger_config.property as string) || "property";
+    return t("triggerContactProperty", { property: prop });
+  }
+  if (flow.trigger_type === "new_contact_created") {
+    return t("triggerNewContact");
+  }
+  if (flow.trigger_type === "new_message_received") {
+    return t("triggerNewMessage");
+  }
+  if (flow.trigger_type === "conversation_assigned") {
+    return t("triggerConversationAssigned");
   }
   return t("triggerManual");
 }

@@ -28,10 +28,17 @@ export interface StartNodeConfig {
 }
 
 export interface SendMessageNodeConfig {
-  /** Plain text sent to the customer; can interpolate {{vars.X}}. */
+  /** Plain text sent to the customer; can interpolate {{vars.X}} and {{contact.X}}. */
   text: string;
-  /** Auto-advance target after the message lands at Meta. */
+  /** Auto-advance target after the message lands at Meta (or on customer reply if wait_for_reply is true). */
   next_node_key: string;
+  /**
+   * When true, pauses/suspends the flow run after sending this message.
+   * Only advances to `next_node_key` when the contact replies to the message.
+   */
+  wait_for_reply?: boolean;
+  /** Optional variable name in flow_runs.vars to store the customer's reply text. */
+  var_key?: string;
 }
 
 export interface SendButtonsNodeConfig {
@@ -93,8 +100,15 @@ export interface SendMediaNodeConfig {
    * at upload time; the user can edit it.
    */
   filename?: string;
-  /** Auto-advance target after the send lands at Meta. */
+  /** Auto-advance target after the send lands at Meta (or on customer reply if wait_for_reply is true). */
   next_node_key: string;
+  /**
+   * When true, pauses/suspends the flow run after sending this media.
+   * Only advances to `next_node_key` when the contact replies.
+   */
+  wait_for_reply?: boolean;
+  /** Optional variable name in flow_runs.vars to store the customer's reply text. */
+  var_key?: string;
 }
 
 export interface HandoffNodeConfig {
@@ -234,6 +248,17 @@ export type FlowNodeType = FlowNodeConfig["node_type"];
 // Triggers (matches `flows.trigger_type` + `trigger_config`)
 // ============================================================
 
+export type FlowTriggerType =
+  | "keyword"
+  | "first_inbound_message"
+  | "manual"
+  | "tag_added"
+  | "tag_removed"
+  | "contact_property"
+  | "new_contact_created"
+  | "new_message_received"
+  | "conversation_assigned";
+
 export interface KeywordTriggerConfig {
   /** One or more keywords. Match is case-insensitive by default. */
   keywords: string[];
@@ -246,10 +271,45 @@ export interface KeywordTriggerConfig {
 // the no-empty-object-type lint rule.
 export type FirstInboundTriggerConfig = Record<string, never>;
 
+export interface TagTriggerConfig {
+  /** Optional specific tag_id. If omitted, fires on any tag added. */
+  tag_id?: string;
+  tag_name?: string;
+}
+
+export interface TagRemovedTriggerConfig {
+  /** Optional specific tag_id. If omitted, fires on any tag removed. */
+  tag_id?: string;
+  tag_name?: string;
+}
+
+export interface ContactPropertyTriggerConfig {
+  /**
+   * Contact property or field name, e.g. "email", "phone", "name",
+   * "company", "hubspot_contact_id", or a custom field "custom:<id>".
+   */
+  property: string;
+  operator?: "any_change" | "equals" | "not_equals" | "contains" | "is_set" | "is_not_set";
+  value?: string;
+}
+
+export type NewContactTriggerConfig = Record<string, unknown>;
+export type NewMessageTriggerConfig = Record<string, unknown>;
+
+export interface ConversationAssignedTriggerConfig {
+  agent_id?: string;
+}
+
 export type FlowTriggerConfig =
   | { trigger_type: "keyword"; config: KeywordTriggerConfig }
   | { trigger_type: "first_inbound_message"; config: FirstInboundTriggerConfig }
-  | { trigger_type: "manual"; config: Record<string, never> };
+  | { trigger_type: "manual"; config: Record<string, never> }
+  | { trigger_type: "tag_added"; config: TagTriggerConfig }
+  | { trigger_type: "tag_removed"; config: TagRemovedTriggerConfig }
+  | { trigger_type: "contact_property"; config: ContactPropertyTriggerConfig }
+  | { trigger_type: "new_contact_created"; config: NewContactTriggerConfig }
+  | { trigger_type: "new_message_received"; config: NewMessageTriggerConfig }
+  | { trigger_type: "conversation_assigned"; config: ConversationAssignedTriggerConfig };
 
 // ============================================================
 // DB-row shapes (read by the engine via supabaseAdmin)
@@ -266,8 +326,8 @@ export interface FlowRow {
   name: string;
   description: string | null;
   status: "draft" | "active" | "archived";
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
-  trigger_config: KeywordTriggerConfig | FirstInboundTriggerConfig | Record<string, unknown>;
+  trigger_type: FlowTriggerType;
+  trigger_config: Record<string, unknown>;
   entry_node_id: string | null;
   fallback_policy: FlowFallbackPolicy;
   execution_count: number;

@@ -156,6 +156,66 @@ describe("validateFlowForActivation — trigger", () => {
     );
     expect(issues.filter((i) => i.scope === "trigger")).toEqual([]);
   });
+
+  it("tag_added and tag_removed triggers are valid with or without tag_id", () => {
+    const issuesWithTag = validateFlowForActivation(
+      {
+        ...validFlow,
+        trigger_type: "tag_added",
+        trigger_config: { tag_id: "tag-123" },
+      },
+      validNodes,
+    );
+    expect(issuesWithTag.filter((i) => i.scope === "trigger")).toEqual([]);
+
+    const issuesWithoutTag = validateFlowForActivation(
+      {
+        ...validFlow,
+        trigger_type: "tag_removed",
+        trigger_config: {},
+      },
+      validNodes,
+    );
+    expect(issuesWithoutTag.filter((i) => i.scope === "trigger")).toEqual([]);
+  });
+
+  it("contact_property requires a non-empty property name", () => {
+    const invalid = validateFlowForActivation(
+      {
+        ...validFlow,
+        trigger_type: "contact_property",
+        trigger_config: { property: "" },
+      },
+      validNodes,
+    );
+    expect(
+      invalid.some(
+        (i) => i.scope === "trigger" && i.field === "trigger_config.property",
+      ),
+    ).toBe(true);
+
+    const valid = validateFlowForActivation(
+      {
+        ...validFlow,
+        trigger_type: "contact_property",
+        trigger_config: { property: "email", operator: "equals", value: "test@example.com" },
+      },
+      validNodes,
+    );
+    expect(valid.filter((i) => i.scope === "trigger")).toEqual([]);
+  });
+
+  it("new_contact_created and new_message_received triggers need no config", () => {
+    const issues = validateFlowForActivation(
+      {
+        ...validFlow,
+        trigger_type: "new_contact_created",
+        trigger_config: {},
+      },
+      validNodes,
+    );
+    expect(issues.filter((i) => i.scope === "trigger")).toEqual([]);
+  });
 });
 
 describe("validateFlowForActivation — nodes", () => {
@@ -513,6 +573,87 @@ describe("validateFlowForActivation — send_media", () => {
       }),
     );
     expect(set).toEqual(new Set(["s", "m", "h"]));
+  });
+
+  it("validates var_key syntax when wait_for_reply is true", () => {
+    const invalidIssues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({
+        media_type: "image",
+        media_url: "https://cdn.example/x.png",
+        next_node_key: "h",
+        wait_for_reply: true,
+        var_key: "bad-name!",
+      }),
+    );
+    expect(
+      invalidIssues.some(
+        (i) => i.node_key === "m" && i.field === "var_key",
+      ),
+    ).toBe(true);
+
+    const validIssues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({
+        media_type: "image",
+        media_url: "https://cdn.example/x.png",
+        next_node_key: "h",
+        wait_for_reply: true,
+        var_key: "customer_receipt",
+      }),
+    );
+    expect(validIssues).toEqual([]);
+  });
+});
+
+describe("validateFlowForActivation — send_message", () => {
+  const baseFlow = { ...validFlow, entry_node_id: "s" };
+  const nodesWith = (msgConfig: Record<string, unknown>) => [
+    { node_key: "s", node_type: "start", config: { next_node_key: "msg" } },
+    { node_key: "msg", node_type: "send_message", config: msgConfig },
+    { node_key: "h", node_type: "handoff", config: {} },
+  ];
+
+  it("passes on a well-formed send_message node with wait_for_reply", () => {
+    const issues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({
+        text: "Please reply with your confirmation code",
+        next_node_key: "h",
+        wait_for_reply: true,
+        var_key: "confirmation_code",
+      }),
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("flags invalid var_key when wait_for_reply is true", () => {
+    const issues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({
+        text: "Please reply",
+        next_node_key: "h",
+        wait_for_reply: true,
+        var_key: "bad-var-name",
+      }),
+    );
+    expect(
+      issues.some(
+        (i) => i.node_key === "msg" && i.field === "var_key",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows empty var_key when wait_for_reply is true (reply not captured into var)", () => {
+    const issues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({
+        text: "Please reply",
+        next_node_key: "h",
+        wait_for_reply: true,
+      }),
+    );
+    expect(issues).toEqual([]);
   });
 });
 

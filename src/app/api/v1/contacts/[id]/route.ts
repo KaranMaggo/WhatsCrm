@@ -78,6 +78,26 @@ export async function PATCH(
         console.error('[api/v1/contacts] update error:', error);
         return fail('internal', 'Failed to update contact', 500);
       }
+
+      // Dispatch contact_property triggers to flows for changed fields
+      for (const [prop, val] of Object.entries(updates)) {
+        if (prop === 'updated_at') continue;
+        try {
+          const { dispatchTriggerToFlows } = await import('@/lib/flows/engine');
+          await dispatchTriggerToFlows({
+            accountId: ctx.accountId,
+            triggerType: 'contact_property',
+            contactId: id,
+            context: {
+              property: prop,
+              value: val,
+              old_value: ((existing as unknown) as Record<string, unknown>)[prop],
+            },
+          });
+        } catch (flowErr) {
+          console.warn('[flows] contact_property dispatch error:', flowErr);
+        }
+      }
     }
 
     if (Array.isArray(body.tags)) {
