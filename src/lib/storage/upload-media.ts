@@ -55,12 +55,21 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
  * `subfolder` inserts one level below `account-<id>`. The bucket's RLS
  * write policies only match the FIRST path segment (migrations 020/023),
  * so nesting below it is free.
+ *
+ * `contactId` puts the customer's own folder between the account and the
+ * subfolder, so every file a customer sent or received lives together:
+ *
+ *   account-<account_id>/contact-<contact_id>/<subfolder>/<file>
+ *
+ * Omitted, the path is exactly what it was before — existing callers and
+ * the files already in the bucket are unaffected.
  */
 export function buildMediaPath(
   accountId: string,
   fileName: string,
   now: number | null = Date.now(),
   subfolder?: string,
+  contactId?: string,
 ): string {
   // Only treat the trailing segment as an extension when there's a real
   // one — a bare name like "README" has no extension and falls back to
@@ -72,9 +81,14 @@ export function buildMediaPath(
       .replace(/\.[^.]+$/, "")
       .replace(/[^a-zA-Z0-9_-]+/g, "_")
       .slice(0, 40) || "file";
-  const dir = subfolder
-    ? `account-${accountId}/${subfolder}`
-    : `account-${accountId}`;
+  // Contact ids are database UUIDs, but this builds a storage key, so keep
+  // only characters that are safe in one — a stray "/" would otherwise add
+  // a path level.
+  const safeContact = contactId?.replace(/[^a-zA-Z0-9_-]/g, "");
+  const segments = [`account-${accountId}`];
+  if (safeContact) segments.push(`contact-${safeContact}`);
+  if (subfolder) segments.push(subfolder);
+  const dir = segments.join("/");
   const stamp = now === null ? "" : `${now}-`;
   return `${dir}/${stamp}${safeBase}.${ext}`;
 }
@@ -86,6 +100,13 @@ export interface UploadAccountMediaResult {
   path: string;
 }
 
+export interface UploadAccountMediaOptions {
+  /** Customer the file belongs to. Adds a `contact-<id>` folder. */
+  contactId?: string | null;
+  /** Folder below the account/contact folder, e.g. "outbound". */
+  subfolder?: string;
+}
+
 /**
  * Upload a file to an account-scoped Storage bucket and return its public
  * URL. Throws with a user-facing message on auth / account-resolution /
@@ -93,10 +114,15 @@ export interface UploadAccountMediaResult {
  *
  * Size validation is the caller's responsibility (limits can differ per
  * feature); `MEDIA_MAX_BYTES` is exported for the common case.
+ *
+ * Pass `options.contactId` for a file that belongs to one customer (the
+ * inbox composer) so it is stored in that customer's folder. Leave it out
+ * for shared assets such as flow media and templates.
  */
 export async function uploadAccountMedia(
   bucket: string,
   file: File,
+  options: UploadAccountMediaOptions = {},
 ): Promise<UploadAccountMediaResult> {
   const supabase = createClient();
 
@@ -120,7 +146,13 @@ export async function uploadAccountMedia(
     throw new Error(t("upload.accountUnresolved"));
   }
 
-  const path = buildMediaPath(profile.account_id as string, file.name);
+  const path = buildMediaPath(
+    profile.account_id as string,
+    file.name,
+    Date.now(),
+    options.subfolder,
+    options.contactId ?? undefined,
+  );
   const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
     cacheControl: "3600",
     upsert: false,
