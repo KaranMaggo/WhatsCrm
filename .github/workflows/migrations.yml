@@ -67,5 +67,32 @@ jobs:
       # every DDL statement here is IF NOT EXISTS-guarded, which turns a
       # typo'd object name into a silent no-op. Assert the outcome, not
       # just the absence of an error.
+            # Diagnose database function permissions before verification.
+      - name: Diagnose internal function permissions
+        run: |
+          cat > /tmp/check-function-grants.sql <<'SQL'
+          DO $$
+          DECLARE
+            fn text;
+          BEGIN
+            FOREACH fn IN ARRAY ARRAY[
+              'public.bcast_bump(uuid,text,integer)',
+              'public.recompute_broadcast_counts(uuid)',
+              'public.claim_ai_reply_slot(uuid,integer)',
+              'public.record_webhook_failure(uuid,integer)',
+              'public.merge_duplicate_contacts()',
+              'public.merge_duplicate_conversations()'
+            ]
+            LOOP
+              RAISE NOTICE 'Function: %, anon: %, authenticated: %, service_role: %',
+                fn,
+                has_function_privilege('anon', fn, 'EXECUTE'),
+                has_function_privilege('authenticated', fn, 'EXECUTE'),
+                has_function_privilege('service_role', fn, 'EXECUTE');
+            END LOOP;
+          END $$;
+          SQL
+          supabase db query --local --file /tmp/check-function-grants.sql
+
       - name: Verify the resulting schema
         run: supabase db query --local --file supabase/ci/verify-schema.sql
