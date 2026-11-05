@@ -976,14 +976,9 @@ describe('HubSpot Integration Client', () => {
         })
       );
 
-      // Verify local contact_notes and deals were updated
-      expect(insertedNotes).toHaveLength(1);
-      expect(insertedNotes[0].note_text).toContain('Images shared on WhatsApp');
-      expect(insertedNotes[0].contact_id).toBe('cont-2');
-
-      expect(updatedDeals).toHaveLength(1);
-      expect(updatedDeals[0].notes).toContain('[Images shared on WhatsApp]');
-      expect(updatedDeals[0].id).toBe('deal-1');
+      // Local contact_notes and deals are left clean for manual staff notes
+      expect(insertedNotes).toHaveLength(0);
+      expect(updatedDeals).toHaveLength(0);
 
       // Verify message row updated with hubspot_note_id
       expect(updatedMessages).toContainEqual(

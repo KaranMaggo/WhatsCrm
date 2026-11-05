@@ -1344,40 +1344,6 @@ export async function syncConversationChatToHubSpot(
             console.warn('[hubspot] updating message hubspot_note_id failed:', msgUpdateErr);
           }
 
-          // Add to local contact_notes so it's visible in WACRM contact sidebar
-          try {
-            await client.from('contact_notes').insert({
-              contact_id: contact.id,
-              account_id: accountId,
-              user_id: conv.user_id || contact.user_id || '00000000-0000-0000-0000-000000000000',
-              note_text: formattedNote.plainText,
-            });
-          } catch (noteInsertErr) {
-            console.warn('[hubspot] local contact_note insert failed:', noteInsertErr);
-          }
-
-          // Also update local deals' notes if any exist
-          try {
-            const { data: localDeals } = await client
-              .from('deals')
-              .select('id, notes')
-              .eq('contact_id', contact.id);
-
-            if (localDeals && Array.isArray(localDeals)) {
-              for (const d of localDeals) {
-                const updatedNotes = d.notes
-                  ? `${d.notes}\n\n[${formattedNote.title}]: ${msg.content_text || ''} ${msg.media_url || ''}`.trim()
-                  : `[${formattedNote.title}]: ${msg.content_text || ''} ${msg.media_url || ''}`.trim();
-                await client
-                  .from('deals')
-                  .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
-                  .eq('id', d.id);
-              }
-            }
-          } catch (dealNoteErr) {
-            console.warn('[hubspot] local deal notes update failed:', dealNoteErr);
-          }
-
           await recordHubSpotSyncLog(client, {
             account_id: accountId,
             contact_id: contact.id,
