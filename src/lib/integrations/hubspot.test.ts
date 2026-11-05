@@ -11,6 +11,7 @@ import {
   getHubSpotChatDeepLink,
   formatWhatsAppMessageForHubSpot,
   formatWhatsAppMediaNote,
+  formatHubSpotContactFolderPath,
   getHubSpotContactDeals,
   uploadFileToHubSpot,
   createHubSpotMediaNote,
@@ -1051,6 +1052,28 @@ describe('HubSpot Integration Client', () => {
 
       const deals = await getHubSpotContactDeals('token', 'cont-1');
       expect(deals).toEqual(['303']);
+    });
+  });
+
+  describe('formatHubSpotContactFolderPath', () => {
+    it('formats /WhatsApp Media/<Contact Name> cleanly', () => {
+      expect(formatHubSpotContactFolderPath('Karan Maggo')).toBe('/WhatsApp Media/Karan Maggo');
+    });
+
+    it('sanitizes illegal path characters from contact name', () => {
+      expect(formatHubSpotContactFolderPath('John: Doe / VIP?')).toBe('/WhatsApp Media/John_ Doe _ VIP_');
+    });
+
+    it('falls back to phone number when name is empty', () => {
+      expect(formatHubSpotContactFolderPath('', '+91 94780-52194')).toBe('/WhatsApp Media/919478052194');
+    });
+
+    it('falls back to contactId when name and phone are empty', () => {
+      expect(formatHubSpotContactFolderPath('', '', 'contact-uuid-1')).toBe('/WhatsApp Media/contact-contact-uuid-1');
+    });
+
+    it('falls back to base folder when all are empty', () => {
+      expect(formatHubSpotContactFolderPath('', '', '')).toBe('/WhatsApp Media');
     });
   });
 

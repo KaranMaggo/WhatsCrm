@@ -37,6 +37,19 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
 } as const;
 
 /**
+ * Format a per-customer subfolder under account-<id>, e.g.:
+ *   contact-<contact_id>/inbound
+ *   contact-<contact_id>/outbound
+ */
+export function buildCustomerSubfolder(
+  contactId: string,
+  segment: "inbound" | "outbound" | string,
+): string {
+  const normalized = contactId.startsWith("contact-") ? contactId : `contact-${contactId}`;
+  return `${normalized}/${segment}`;
+}
+
+/**
  * Build the account-scoped object path for an upload. Pure + exported so
  * it can be unit-tested without a Supabase client.
  *
@@ -97,6 +110,7 @@ export interface UploadAccountMediaResult {
 export async function uploadAccountMedia(
   bucket: string,
   file: File,
+  subfolder?: string,
 ): Promise<UploadAccountMediaResult> {
   const supabase = createClient();
 
@@ -120,7 +134,7 @@ export async function uploadAccountMedia(
     throw new Error(t("upload.accountUnresolved"));
   }
 
-  const path = buildMediaPath(profile.account_id as string, file.name);
+  const path = buildMediaPath(profile.account_id as string, file.name, Date.now(), subfolder);
   const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
     cacheControl: "3600",
     upsert: false,

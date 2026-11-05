@@ -697,6 +697,38 @@ export async function getHubSpotContactDeals(
 }
 
 /**
+ * Builds a dedicated folder path in HubSpot Files for a contact:
+ *   /WhatsApp Media/<Contact Name>
+ * Falls back to phone or ID if no name is available.
+ */
+export function formatHubSpotContactFolderPath(
+  contactName?: string | null,
+  phone?: string | null,
+  contactId?: string | null
+): string {
+  const base = '/WhatsApp Media';
+  const cleanName = (contactName || '')
+    .trim()
+    .replace(/[/\\?%*:|"<>]/g, '_')
+    .replace(/\s+/g, ' ');
+
+  if (cleanName) {
+    return `${base}/${cleanName}`;
+  }
+
+  const cleanPhone = (phone || '').trim().replace(/\D/g, '');
+  if (cleanPhone) {
+    return `${base}/${cleanPhone}`;
+  }
+
+  if (contactId) {
+    return `${base}/contact-${contactId}`;
+  }
+
+  return base;
+}
+
+/**
  * Upload a media file to HubSpot Files API (/files/v3/files).
  * Returns the uploaded file ID and URL for CRM note attachments.
  */
@@ -1259,6 +1291,11 @@ export async function syncConversationChatToHubSpot(
           try {
             const mediaBytes = await fetchMediaBytes(msg.media_url);
             if (mediaBytes) {
+              const folderPath = formatHubSpotContactFolderPath(
+                contact.name,
+                contact.phone,
+                contact.id
+              );
               const uploaded = await uploadFileToHubSpot(token!, {
                 fileName:
                   mediaBytes.fileName ||
@@ -1267,6 +1304,7 @@ export async function syncConversationChatToHubSpot(
                     : 'whatsapp_image.jpg'),
                 fileBuffer: mediaBytes.buffer,
                 mimeType: mediaBytes.mimeType || msg.media_type,
+                folderPath,
               });
               if (uploaded?.id) {
                 fileAttachmentId = uploaded.id;

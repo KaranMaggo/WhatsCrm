@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildMediaPath, MEDIA_MAX_BYTES_BY_KIND } from "./upload-media";
+import {
+  buildMediaPath,
+  buildCustomerSubfolder,
+  MEDIA_MAX_BYTES_BY_KIND,
+} from "./upload-media";
 
 const ACCOUNT = "11111111-2222-3333-4444-555555555555";
 
@@ -40,6 +44,24 @@ describe("buildMediaPath", () => {
   it("nests a subfolder below account-<id>, leaving the RLS segment first", () => {
     const path = buildMediaPath(ACCOUNT, "photo.png", null, "inbound");
     expect(path).toBe(`account-${ACCOUNT}/inbound/photo.png`);
+    expect(path.split("/")[0]).toBe(`account-${ACCOUNT}`);
+  });
+});
+
+describe("buildCustomerSubfolder", () => {
+  it("formats inbound and outbound subfolders with contact- prefix", () => {
+    expect(buildCustomerSubfolder("123", "inbound")).toBe("contact-123/inbound");
+    expect(buildCustomerSubfolder("123", "outbound")).toBe("contact-123/outbound");
+  });
+
+  it("avoids duplicate contact- prefixes when already present", () => {
+    expect(buildCustomerSubfolder("contact-123", "inbound")).toBe("contact-123/inbound");
+  });
+
+  it("produces valid account-scoped paths when combined with buildMediaPath", () => {
+    const subfolder = buildCustomerSubfolder("123", "inbound");
+    const path = buildMediaPath(ACCOUNT, "photo.png", null, subfolder);
+    expect(path).toBe(`account-${ACCOUNT}/contact-123/inbound/photo.png`);
     expect(path.split("/")[0]).toBe(`account-${ACCOUNT}`);
   });
 });

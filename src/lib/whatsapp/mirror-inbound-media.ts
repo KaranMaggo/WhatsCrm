@@ -1,6 +1,10 @@
 import { downloadMedia } from "./meta-api";
 import { extensionForMime } from "@/lib/media/filename";
-import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
+import {
+  buildMediaPath,
+  buildCustomerSubfolder,
+  MEDIA_MAX_BYTES,
+} from "@/lib/storage/upload-media";
 
 /**
  * Copies inbound WhatsApp media into the `chat-media` bucket so it
@@ -51,6 +55,8 @@ export interface MirrorInboundMediaArgs {
   storage: MirrorStorage;
   /** Tenant. Drives the account-scoped path the bucket's policies expect. */
   accountId: string;
+  /** Customer/contact ID for per-customer storage organization. */
+  contactId?: string | null;
   /** Meta's media id. Makes the object path deterministic. */
   mediaId: string;
   /** Short-lived CDN URL from `getMediaUrl`. */
@@ -152,6 +158,7 @@ export async function mirrorInboundMedia(
   const {
     storage,
     accountId,
+    contactId,
     mediaId,
     downloadUrl,
     accessToken,
@@ -205,7 +212,10 @@ export async function mirrorInboundMedia(
     // `null` suppresses buildMediaPath's wall-clock stamp: the media id
     // already makes this path unique AND stable, and it's the stability
     // that makes a redelivery idempotent rather than duplicative.
-    const path = buildMediaPath(accountId, objectName, null, MIRROR_FOLDER);
+    const subfolder = contactId
+      ? buildCustomerSubfolder(contactId, MIRROR_FOLDER)
+      : MIRROR_FOLDER;
+    const path = buildMediaPath(accountId, objectName, null, subfolder);
 
     // `upsert: true` for that same reason: on the rare Meta redelivery
     // the second pass rewrites byte-identical content at the same key

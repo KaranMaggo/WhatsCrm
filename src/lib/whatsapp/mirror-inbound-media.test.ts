@@ -273,4 +273,47 @@ describe("mirrorInboundMedia", () => {
 
     expect(uploads[0].options.contentType).toBe("image/png");
   });
+
+  it("stores files in per-customer subfolder when contactId is supplied", async () => {
+    const { storage, uploads } = fakeStorage();
+    const download = fakeDownload(1024);
+
+    const url = await mirrorInboundMedia({
+      ...BASE,
+      storage,
+      contactId: "cust-42",
+      mimeType: "image/jpeg",
+      fileSize: 1024,
+      messageTimestamp: "1754899200",
+      download,
+    });
+
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0].bucket).toBe(MIRROR_BUCKET);
+    expect(uploads[0].path).toBe(
+      `account-${ACCOUNT}/contact-cust-42/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+    );
+    expect(url).toBe(
+      `https://cdn.test/storage/chat-media/account-${ACCOUNT}/contact-cust-42/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+    );
+  });
+
+  it("preserves single contact- prefix if contactId already begins with contact-", async () => {
+    const { storage, uploads } = fakeStorage();
+    const download = fakeDownload(1024);
+
+    await mirrorInboundMedia({
+      ...BASE,
+      storage,
+      contactId: "contact-uuid-1",
+      mimeType: "image/jpeg",
+      fileSize: 1024,
+      messageTimestamp: "1754899200",
+      download,
+    });
+
+    expect(uploads[0].path).toBe(
+      `account-${ACCOUNT}/contact-uuid-1/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+    );
+  });
 });

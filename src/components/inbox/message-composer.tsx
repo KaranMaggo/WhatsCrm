@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import {
   uploadAccountMedia,
   deleteAccountMedia,
+  buildCustomerSubfolder,
   MEDIA_MAX_BYTES_BY_KIND,
 } from "@/lib/storage/upload-media";
 import { ReplyQuote } from "./reply-quote";
@@ -462,7 +463,8 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const subfolder = contact?.id ? buildCustomerSubfolder(contact.id, "outbound") : undefined;
+        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file, subfolder);
         // Replacing an existing draft? GC the previous object first.
         removeStaged(draftRef.current?.path);
         setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
@@ -500,7 +502,8 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const subfolder = contact?.id ? buildCustomerSubfolder(contact.id, "outbound") : undefined;
+        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file, subfolder);
         removeStaged(draftRef.current?.path);
         setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });
       } catch (err) {
