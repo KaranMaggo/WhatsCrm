@@ -81,3 +81,5 @@ jobs:
       # Validate the final schema and security requirements.
       - name: Verify the resulting schema
         run: supabase db query --local --file supabase/ci/verify-schema.sql
+
+# Re-run corrected migration diagnostics.
