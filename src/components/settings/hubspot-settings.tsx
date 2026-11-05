@@ -67,6 +67,7 @@ export function HubSpotSettings() {
   const [autoSyncOnMessage, setAutoSyncOnMessage] = useState(true);
   const [autoSyncContacts, setAutoSyncContacts] = useState(true);
   const [autoSyncChat, setAutoSyncChat] = useState(true);
+  const [autoSyncMediaNotes, setAutoSyncMediaNotes] = useState(true);
 
   const [connected, setConnected] = useState<boolean | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
@@ -100,6 +101,7 @@ export function HubSpotSettings() {
         setAutoSyncOnMessage(data.auto_sync_on_message !== false);
         setAutoSyncContacts(data.auto_sync_contacts !== false);
         setAutoSyncChat(data.auto_sync_chat !== false);
+        setAutoSyncMediaNotes(data.auto_sync_media_notes !== false);
         setConnected(data.configured ? true : false);
         if (data.configured) {
           setStatusMessage(data.is_env ? 'Configured via environment variable' : 'Connected to HubSpot');
@@ -206,6 +208,7 @@ export function HubSpotSettings() {
         auto_sync_on_message: autoSyncOnMessage,
         auto_sync_contacts: autoSyncContacts,
         auto_sync_chat: autoSyncChat,
+        auto_sync_media_notes: autoSyncMediaNotes,
       };
 
       if (accessToken.trim()) {
@@ -431,6 +434,23 @@ export function HubSpotSettings() {
                   id="auto-sync-chat"
                   checked={autoSyncChat}
                   onCheckedChange={setAutoSyncChat}
+                  disabled={!canEditSettings}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="auto-sync-media-notes" className="text-sm font-medium cursor-pointer">
+                    Sync Media as Notes to Contacts &amp; Deals
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    When clients share images or videos on WhatsApp, automatically create a Note (&quot;Images shared on WhatsApp&quot;) attached to the contact and associated deals with media attachments.
+                  </p>
+                </div>
+                <Switch
+                  id="auto-sync-media-notes"
+                  checked={autoSyncMediaNotes}
+                  onCheckedChange={setAutoSyncMediaNotes}
                   disabled={!canEditSettings}
                 />
               </div>

@@ -18,6 +18,7 @@ export async function GET() {
       auto_sync_on_message: config.autoSyncOnMessage,
       auto_sync_contacts: config.autoSyncContacts,
       auto_sync_chat: config.autoSyncChat,
+      auto_sync_media_notes: config.autoSyncMediaNotes,
       is_env: config.isEnv,
     });
   } catch (err) {
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
       typeof body.auto_sync_contacts === 'boolean' ? body.auto_sync_contacts : undefined;
     const autoSyncChat =
       typeof body.auto_sync_chat === 'boolean' ? body.auto_sync_chat : undefined;
+    const autoSyncMediaNotes =
+      typeof body.auto_sync_media_notes === 'boolean' ? body.auto_sync_media_notes : undefined;
 
     // If a new access token is supplied, verify it first before persisting
     if (accessToken) {
@@ -63,6 +66,7 @@ export async function POST(request: Request) {
       autoSyncOnMessage,
       autoSyncContacts,
       autoSyncChat,
+      autoSyncMediaNotes,
     });
 
     if (!saveResult.ok) {

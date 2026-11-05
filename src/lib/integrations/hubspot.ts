@@ -48,6 +48,7 @@ export interface SyncConversationChatResult {
   ok: boolean;
   hubspotContactId?: string;
   noteCreated: boolean;
+  mediaNotesCreatedCount?: number;
   messagesSyncedCount: number;
   error?: string;
 }
@@ -578,6 +579,301 @@ export async function createHubSpotNote(
   }
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Format an inbound WhatsApp media message (image/video) into a Note for HubSpot.
+ * Includes note title ("Images shared on WhatsApp" or "Videos shared on WhatsApp"),
+ * caption, and media attachment link.
+ */
+export function formatWhatsAppMediaNote(
+  contentType: string,
+  caption?: string | null,
+  mediaUrl?: string | null,
+  fileName?: string | null
+): { title: string; htmlBody: string; plainText: string } {
+  const isVideo = contentType === 'video';
+  // Matches user specification: "Images shared on WhatsApp" / "Videos shared on WhatsApp"
+  const title = isVideo ? 'Videos shared on WhatsApp' : 'Images shared on WhatsApp';
+  const cleanCaption = caption?.trim() || null;
+  const cleanUrl = mediaUrl?.trim() || null;
+  const displayFile = fileName?.trim() || (isVideo ? 'WhatsApp Video' : 'WhatsApp Image');
+
+  const plainParts: string[] = [title];
+  if (cleanCaption) {
+    plainParts.push(`Caption: ${cleanCaption}`);
+  }
+  if (cleanUrl) {
+    plainParts.push(`Attachment: ${cleanUrl}`);
+  }
+  const plainText = plainParts.join('\n');
+
+  let htmlBody = `<p><strong>${escapeHtml(title)}</strong></p>`;
+  if (cleanCaption) {
+    htmlBody += `<p><strong>Caption:</strong> ${escapeHtml(cleanCaption)}</p>`;
+  }
+  if (cleanUrl) {
+    htmlBody += `<p><strong>Attachment:</strong> <a href="${escapeHtml(
+      cleanUrl
+    )}" target="_blank" rel="noopener noreferrer">${escapeHtml(displayFile)}</a></p>`;
+  }
+
+  return { title, htmlBody, plainText };
+}
+
+/**
+ * Retrieve deal IDs associated with a contact in HubSpot.
+ * Checks both v4 and v3 associations endpoints.
+ */
+export async function getHubSpotContactDeals(
+  token: string,
+  hubspotContactId: string
+): Promise<string[]> {
+  if (!token?.trim() || !hubspotContactId?.trim()) return [];
+
+  const dealIds = new Set<string>();
+
+  // 1. Try v4 associations endpoint: /crm/v4/objects/contacts/{contactId}/associations/deals
+  try {
+    const res = await fetch(
+      `${HUBSPOT_BASE_URL}/crm/v4/objects/contacts/${encodeURIComponent(
+        hubspotContactId
+      )}/associations/deals?limit=100`,
+      {
+        method: 'GET',
+        headers: getHeaders(token),
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.results)) {
+        for (const item of data.results) {
+          const id = item.toObjectId || item.id;
+          if (id) dealIds.add(String(id));
+        }
+        if (dealIds.size > 0) {
+          return Array.from(dealIds);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[hubspot] getHubSpotContactDeals v4 lookup failed, trying fallback:', err);
+  }
+
+  // 2. Fallback to v3 contact read with associations=deals
+  try {
+    const res = await fetch(
+      `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/${encodeURIComponent(
+        hubspotContactId
+      )}?associations=deals`,
+      {
+        method: 'GET',
+        headers: getHeaders(token),
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      const results = data.associations?.deals?.results;
+      if (Array.isArray(results)) {
+        for (const item of results) {
+          if (item.id) dealIds.add(String(item.id));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[hubspot] getHubSpotContactDeals v3 fallback failed:', err);
+  }
+
+  return Array.from(dealIds);
+}
+
+/**
+ * Upload a media file to HubSpot Files API (/files/v3/files).
+ * Returns the uploaded file ID and URL for CRM note attachments.
+ */
+export async function uploadFileToHubSpot(
+  token: string,
+  options: {
+    fileName: string;
+    fileBuffer: Buffer | Uint8Array;
+    mimeType?: string;
+    folderPath?: string;
+  }
+): Promise<{ id: string; url?: string } | null> {
+  if (!token?.trim() || !options.fileBuffer) return null;
+
+  try {
+    const formData = new FormData();
+    const blob = new Blob([options.fileBuffer as unknown as BlobPart], {
+      type: options.mimeType || 'application/octet-stream',
+    });
+    formData.append('file', blob, options.fileName);
+    formData.append('fileName', options.fileName);
+    formData.append('options', JSON.stringify({ access: 'PUBLIC_NOT_INDEXABLE' }));
+    formData.append('folderPath', options.folderPath || '/WhatsApp Media');
+
+    const cleanToken = token.trim().replace(/^Bearer\s+/i, '');
+    const res = await fetch(`${HUBSPOT_BASE_URL}/files/v3/files`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+      },
+      body: formData,
+    });
+
+    if (res.status === 200 || res.status === 201) {
+      const data = await res.json();
+      return {
+        id: String(data.id),
+        url: data.url,
+      };
+    }
+
+    const err = await res.json().catch(() => null);
+    console.warn('[hubspot] uploadFileToHubSpot error:', res.status, err?.message || err);
+    return null;
+  } catch (err) {
+    console.warn('[hubspot] uploadFileToHubSpot network/exception error:', err);
+    return null;
+  }
+}
+
+/**
+ * Create a Note associated to both Contact (202) and Deals (214) in HubSpot,
+ * with optional file attachment (hs_attachment_ids).
+ */
+export async function createHubSpotMediaNote(
+  token: string,
+  options: {
+    hubspotContactId: string;
+    dealIds?: string[];
+    noteBody: string;
+    fileId?: string | null;
+    timestamp?: string;
+  }
+): Promise<{ id: string } | null> {
+  const { hubspotContactId, dealIds = [], noteBody, fileId, timestamp } = options;
+  if (!token?.trim() || !hubspotContactId?.trim() || !noteBody?.trim()) return null;
+
+  const associations: Array<{
+    to: { id: string };
+    types: Array<{ associationCategory: string; associationTypeId: number }>;
+  }> = [
+    {
+      to: { id: hubspotContactId },
+      types: [
+        {
+          associationCategory: 'HUBSPOT_DEFINED',
+          associationTypeId: 202, // Note to Contact
+        },
+      ],
+    },
+  ];
+
+  // Associate Note to each Deal (associationTypeId 214)
+  for (const dealId of dealIds) {
+    if (dealId && dealId !== hubspotContactId) {
+      associations.push({
+        to: { id: String(dealId) },
+        types: [
+          {
+            associationCategory: 'HUBSPOT_DEFINED',
+            associationTypeId: 214, // Note to Deal
+          },
+        ],
+      });
+    }
+  }
+
+  const properties: Record<string, string> = {
+    hs_timestamp: timestamp || new Date().toISOString(),
+    hs_note_body: noteBody,
+  };
+
+  if (fileId) {
+    properties.hs_attachment_ids = String(fileId);
+  }
+
+  try {
+    const res = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/notes`, {
+      method: 'POST',
+      headers: getHeaders(token),
+      body: JSON.stringify({
+        properties,
+        associations,
+      }),
+    });
+
+    if (res.status === 201) {
+      const data = await res.json();
+      return { id: String(data.id) };
+    }
+
+    const err = await res.json().catch(() => null);
+    console.warn('[hubspot] createHubSpotMediaNote error:', res.status, err?.message || err);
+    return null;
+  } catch (err) {
+    console.error('[hubspot] createHubSpotMediaNote network error:', err);
+    return null;
+  }
+}
+
+/**
+ * Download raw bytes of a media URL for uploading to HubSpot Files.
+ */
+export async function fetchMediaBytes(
+  mediaUrl: string
+): Promise<{ buffer: Buffer; mimeType?: string; fileName?: string } | null> {
+  if (!mediaUrl?.trim()) return null;
+
+  try {
+    let targetUrl = mediaUrl.trim();
+    if (targetUrl.startsWith('/')) {
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      targetUrl = `${siteUrl.replace(/\/$/, '')}${targetUrl}`;
+    }
+
+    const res = await fetch(targetUrl);
+    if (!res.ok) {
+      console.warn('[hubspot] fetchMediaBytes failed with status:', res.status, targetUrl);
+      return null;
+    }
+
+    const mimeType = res.headers.get('content-type') || undefined;
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    let fileName = 'media_file';
+    try {
+      const parsedUrl = new URL(targetUrl);
+      const lastSegment = parsedUrl.pathname.split('/').pop();
+      if (lastSegment && lastSegment.includes('.')) {
+        fileName = decodeURIComponent(lastSegment);
+      } else {
+        const ext = mimeType?.includes('video') ? '.mp4' : '.jpg';
+        fileName = `whatsapp_${Date.now()}${ext}`;
+      }
+    } catch {
+      const ext = mimeType?.includes('video') ? '.mp4' : '.jpg';
+      fileName = `whatsapp_${Date.now()}${ext}`;
+    }
+
+    return { buffer, mimeType, fileName };
+  } catch (err) {
+    console.warn('[hubspot] fetchMediaBytes exception:', err);
+    return null;
+  }
+}
+
 /**
  * Log a WhatsApp message to a HubSpot Contact's activity timeline.
  *
@@ -734,7 +1030,7 @@ export async function syncConversationChatToHubSpot(
   // 2. Fetch conversation
   const { data: conv, error: convErr } = await client
     .from('conversations')
-    .select('id, contact_id, created_at, hubspot_started_synced, hubspot_contact_id')
+    .select('id, user_id, contact_id, created_at, hubspot_started_synced, hubspot_contact_id')
     .eq('id', conversationId)
     .single();
 
@@ -750,7 +1046,7 @@ export async function syncConversationChatToHubSpot(
   // 3. Fetch contact
   const { data: contact, error: contactErr } = await client
     .from('contacts')
-    .select('id, name, email, phone, company, hubspot_contact_id')
+    .select('id, user_id, name, email, phone, company, hubspot_contact_id')
     .eq('id', conv.contact_id)
     .single();
 
@@ -892,7 +1188,7 @@ export async function syncConversationChatToHubSpot(
   // 7. Sync messages to HubSpot
   let messagesQuery = client
     .from('messages')
-    .select('id, sender_type, content_type, content_text, media_url, template_name, interactive_reply_id, created_at, hubspot_communication_id')
+    .select('id, sender_type, content_type, content_text, media_url, media_type, template_name, interactive_reply_id, created_at, hubspot_communication_id, hubspot_note_id')
     .eq('conversation_id', conversationId);
 
   if (singleMessageId) {
@@ -910,70 +1206,217 @@ export async function syncConversationChatToHubSpot(
       ok: true,
       hubspotContactId,
       noteCreated,
+      mediaNotesCreatedCount: 0,
       messagesSyncedCount: 0,
     };
   }
 
   let messagesSyncedCount = 0;
+  let mediaNotesCreatedCount = 0;
+  let cachedDealIds: string[] | null = null;
+  const currentContactId = contact.id;
+
+  async function resolveContactDeals(): Promise<string[]> {
+    if (cachedDealIds !== null) return cachedDealIds;
+    const deals = await getHubSpotContactDeals(token!, hubspotContactId!);
+    try {
+      const { data: localDeals } = await client!
+        .from('deals')
+        .select('id, hubspot_deal_id, notes')
+        .eq('contact_id', currentContactId);
+
+      if (localDeals && Array.isArray(localDeals)) {
+        for (const ld of localDeals) {
+          if (ld.hubspot_deal_id && !deals.includes(ld.hubspot_deal_id)) {
+            deals.push(ld.hubspot_deal_id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[hubspot] reading local deals error:', e);
+    }
+    cachedDealIds = deals;
+    return deals;
+  }
+
   if (messagesToSync && messagesToSync.length > 0) {
     for (const msg of messagesToSync) {
-      if (msg.hubspot_communication_id) continue;
+      const isClientMedia =
+        msg.sender_type === 'customer' &&
+        (msg.content_type === 'image' || msg.content_type === 'video');
 
-      const body = formatWhatsAppMessageForHubSpot(
-        msg.sender_type,
-        msg.content_text,
-        msg.content_type,
-        accountName,
-        contact.name || 'Customer'
-      );
+      // 7A. Sync Media Note to Contacts & Deals if it's client image/video and not yet synced as note
+      if (isClientMedia && !msg.hubspot_note_id) {
+        const deals = await resolveContactDeals();
+        const formattedNote = formatWhatsAppMediaNote(
+          msg.content_type,
+          msg.content_text,
+          msg.media_url
+        );
 
-      console.info(`[HubSpot] Logging WhatsApp message to HubSpot: "${body.slice(0, 50)}..."`);
-      const commResult = await logHubSpotWhatsAppMessage(
-        token,
-        hubspotContactId,
-        {
-          body,
+        let fileAttachmentId: string | null = null;
+        if (msg.media_url) {
+          try {
+            const mediaBytes = await fetchMediaBytes(msg.media_url);
+            if (mediaBytes) {
+              const uploaded = await uploadFileToHubSpot(token!, {
+                fileName:
+                  mediaBytes.fileName ||
+                  (msg.content_type === 'video'
+                    ? 'whatsapp_video.mp4'
+                    : 'whatsapp_image.jpg'),
+                fileBuffer: mediaBytes.buffer,
+                mimeType: mediaBytes.mimeType || msg.media_type,
+              });
+              if (uploaded?.id) {
+                fileAttachmentId = uploaded.id;
+              }
+            }
+          } catch (uploadErr) {
+            console.warn(
+              '[HubSpot] File upload for media note failed, will link in note body:',
+              uploadErr
+            );
+          }
+        }
+
+        console.info(
+          `[HubSpot] Creating media note for ${msg.content_type} on contact ${hubspotContactId} and deals [${deals.join(', ')}]...`
+        );
+        const noteResult = await createHubSpotMediaNote(token!, {
+          hubspotContactId,
+          dealIds: deals,
+          noteBody: formattedNote.htmlBody,
+          fileId: fileAttachmentId,
           timestamp: msg.created_at,
-        }
-      );
-
-      if (commResult?.id) {
-        messagesSyncedCount++;
-        try {
-          await client
-            .from('messages')
-            .update({
-              hubspot_communication_id: commResult.id,
-              hubspot_synced_at: new Date().toISOString(),
-            })
-            .eq('id', msg.id);
-        } catch (msgUpdateErr) {
-          console.warn('[hubspot] updating message sync status failed:', msgUpdateErr);
-        }
-
-        await recordHubSpotSyncLog(client, {
-          account_id: accountId,
-          contact_id: contact.id,
-          contact_name: contact.name,
-          email: contact.email,
-          phone: contact.phone,
-          action: 'message_logged',
-          hubspot_contact_id: hubspotContactId,
-          status: 'success',
-          source:
-            msg.sender_type === 'customer'
-              ? 'whatsapp_message'
-              : 'outbound_message',
         });
+
+        if (noteResult?.id) {
+          mediaNotesCreatedCount++;
+          msg.hubspot_note_id = noteResult.id;
+          try {
+            await client
+              .from('messages')
+              .update({
+                hubspot_note_id: noteResult.id,
+                hubspot_synced_at: new Date().toISOString(),
+              })
+              .eq('id', msg.id);
+          } catch (msgUpdateErr) {
+            console.warn('[hubspot] updating message hubspot_note_id failed:', msgUpdateErr);
+          }
+
+          // Add to local contact_notes so it's visible in WACRM contact sidebar
+          try {
+            await client.from('contact_notes').insert({
+              contact_id: contact.id,
+              account_id: accountId,
+              user_id: conv.user_id || contact.user_id || '00000000-0000-0000-0000-000000000000',
+              note_text: formattedNote.plainText,
+            });
+          } catch (noteInsertErr) {
+            console.warn('[hubspot] local contact_note insert failed:', noteInsertErr);
+          }
+
+          // Also update local deals' notes if any exist
+          try {
+            const { data: localDeals } = await client
+              .from('deals')
+              .select('id, notes')
+              .eq('contact_id', contact.id);
+
+            if (localDeals && Array.isArray(localDeals)) {
+              for (const d of localDeals) {
+                const updatedNotes = d.notes
+                  ? `${d.notes}\n\n[${formattedNote.title}]: ${msg.content_text || ''} ${msg.media_url || ''}`.trim()
+                  : `[${formattedNote.title}]: ${msg.content_text || ''} ${msg.media_url || ''}`.trim();
+                await client
+                  .from('deals')
+                  .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
+                  .eq('id', d.id);
+              }
+            }
+          } catch (dealNoteErr) {
+            console.warn('[hubspot] local deal notes update failed:', dealNoteErr);
+          }
+
+          await recordHubSpotSyncLog(client, {
+            account_id: accountId,
+            contact_id: contact.id,
+            contact_name: contact.name,
+            email: contact.email,
+            phone: contact.phone,
+            action: 'note_created',
+            hubspot_contact_id: hubspotContactId,
+            status: 'success',
+            source: 'whatsapp_message',
+          });
+          console.info(`[HubSpot] ✓ Created media note in HubSpot (Note ID: ${noteResult.id})`);
+        }
+      }
+
+      // 7B. Also log timeline communication if not yet logged
+      if (!msg.hubspot_communication_id) {
+        const body = formatWhatsAppMessageForHubSpot(
+          msg.sender_type,
+          msg.content_text,
+          msg.content_type,
+          accountName,
+          contact.name || 'Customer'
+        );
+
+        console.info(`[HubSpot] Logging WhatsApp message to HubSpot: "${body.slice(0, 50)}..."`);
+        const commResult = await logHubSpotWhatsAppMessage(
+          token!,
+          hubspotContactId,
+          {
+            body,
+            timestamp: msg.created_at,
+          }
+        );
+
+        if (commResult?.id) {
+          messagesSyncedCount++;
+          msg.hubspot_communication_id = commResult.id;
+          try {
+            await client
+              .from('messages')
+              .update({
+                hubspot_communication_id: commResult.id,
+                hubspot_synced_at: new Date().toISOString(),
+              })
+              .eq('id', msg.id);
+          } catch (msgUpdateErr) {
+            console.warn('[hubspot] updating message sync status failed:', msgUpdateErr);
+          }
+
+          await recordHubSpotSyncLog(client, {
+            account_id: accountId,
+            contact_id: contact.id,
+            contact_name: contact.name,
+            email: contact.email,
+            phone: contact.phone,
+            action: 'message_logged',
+            hubspot_contact_id: hubspotContactId,
+            status: 'success',
+            source:
+              msg.sender_type === 'customer'
+                ? 'whatsapp_message'
+                : 'outbound_message',
+          });
+        }
       }
     }
-    console.info(`[HubSpot] ✓ Logged ${messagesSyncedCount} messages to HubSpot contact ${hubspotContactId}`);
+    console.info(
+      `[HubSpot] ✓ Logged ${messagesSyncedCount} messages, ${mediaNotesCreatedCount} media notes to HubSpot contact ${hubspotContactId}`
+    );
   }
 
   return {
     ok: true,
     hubspotContactId,
     noteCreated,
+    mediaNotesCreatedCount,
     messagesSyncedCount,
   };
 }

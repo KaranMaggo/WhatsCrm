@@ -20,6 +20,7 @@ export interface HubSpotAccountConfig {
   autoSyncOnMessage: boolean;
   autoSyncContacts: boolean;
   autoSyncChat: boolean;
+  autoSyncMediaNotes: boolean;
   isEnv: boolean;
 }
 
@@ -30,6 +31,7 @@ interface LocalStoredConfig {
   auto_sync_on_message?: boolean;
   auto_sync_contacts?: boolean;
   auto_sync_chat?: boolean;
+  auto_sync_media_notes?: boolean;
   updated_at?: string;
 }
 
@@ -99,7 +101,7 @@ export async function getHubSpotConfigForAccount(
     try {
       const { data, error } = await client
         .from('hubspot_configs')
-        .select('access_token, portal_id, auto_sync_on_message, auto_sync_contacts, auto_sync_chat')
+        .select('access_token, portal_id, auto_sync_on_message, auto_sync_contacts, auto_sync_chat, auto_sync_media_notes')
         .eq('account_id', accountId)
         .maybeSingle();
 
@@ -113,6 +115,7 @@ export async function getHubSpotConfigForAccount(
             autoSyncOnMessage: data.auto_sync_on_message !== false,
             autoSyncContacts: data.auto_sync_contacts !== false,
             autoSyncChat: data.auto_sync_chat !== false,
+            autoSyncMediaNotes: data.auto_sync_media_notes !== false,
             isEnv: false,
           };
         } catch (decErr) {
@@ -136,6 +139,7 @@ export async function getHubSpotConfigForAccount(
         autoSyncOnMessage: localConfig.auto_sync_on_message !== false,
         autoSyncContacts: localConfig.auto_sync_contacts !== false,
         autoSyncChat: localConfig.auto_sync_chat !== false,
+        autoSyncMediaNotes: localConfig.auto_sync_media_notes !== false,
         isEnv: false,
       };
     } catch {
@@ -148,6 +152,7 @@ export async function getHubSpotConfigForAccount(
           autoSyncOnMessage: localConfig.auto_sync_on_message !== false,
           autoSyncContacts: localConfig.auto_sync_contacts !== false,
           autoSyncChat: localConfig.auto_sync_chat !== false,
+          autoSyncMediaNotes: localConfig.auto_sync_media_notes !== false,
           isEnv: false,
         };
       }
@@ -163,6 +168,7 @@ export async function getHubSpotConfigForAccount(
       autoSyncOnMessage: true,
       autoSyncContacts: true,
       autoSyncChat: true,
+      autoSyncMediaNotes: true,
       isEnv: true,
     };
   }
@@ -174,6 +180,7 @@ export async function getHubSpotConfigForAccount(
     autoSyncOnMessage: false,
     autoSyncContacts: false,
     autoSyncChat: false,
+    autoSyncMediaNotes: false,
     isEnv: false,
   };
 }
@@ -196,6 +203,7 @@ export async function saveHubSpotConfigForAccount(
     autoSyncOnMessage?: boolean;
     autoSyncContacts?: boolean;
     autoSyncChat?: boolean;
+    autoSyncMediaNotes?: boolean;
   }
 ): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -228,6 +236,10 @@ export async function saveHubSpotConfigForAccount(
         options.autoSyncChat !== undefined
           ? options.autoSyncChat
           : existingLocal?.auto_sync_chat ?? true,
+      auto_sync_media_notes:
+        options.autoSyncMediaNotes !== undefined
+          ? options.autoSyncMediaNotes
+          : existingLocal?.auto_sync_media_notes ?? true,
       updated_at: new Date().toISOString(),
     };
 
@@ -264,6 +276,10 @@ export async function saveHubSpotConfigForAccount(
 
         if (options.autoSyncChat !== undefined) {
           patch.auto_sync_chat = options.autoSyncChat;
+        }
+
+        if (options.autoSyncMediaNotes !== undefined) {
+          patch.auto_sync_media_notes = options.autoSyncMediaNotes;
         }
 
         const { data: existing } = await client

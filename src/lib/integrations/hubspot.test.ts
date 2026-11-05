@@ -10,6 +10,10 @@ import {
   syncContactToHubSpot,
   getHubSpotChatDeepLink,
   formatWhatsAppMessageForHubSpot,
+  formatWhatsAppMediaNote,
+  getHubSpotContactDeals,
+  uploadFileToHubSpot,
+  createHubSpotMediaNote,
   createHubSpotNote,
   logHubSpotWhatsAppMessage,
   syncConversationChatToHubSpot,
@@ -745,6 +749,346 @@ describe('HubSpot Integration Client', () => {
       expect(res.noteCreated).toBe(true);
       expect(res.messagesSyncedCount).toBe(1);
       expect(res.hubspotContactId).toBe('hs-cont-123');
+    });
+
+    it('creates media note attached to contacts and deals when client shares an image', async () => {
+      const insertedNotes: any[] = [];
+      const updatedDeals: any[] = [];
+      const updatedMessages: any[] = [];
+
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === 'conversations') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  single: async () => ({
+                    data: {
+                      id: 'conv-2',
+                      user_id: 'u-1',
+                      contact_id: 'cont-2',
+                      created_at: '2026-10-26T12:00:00Z',
+                      hubspot_started_synced: true,
+                      hubspot_contact_id: 'hs-cont-456',
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  single: async () => ({
+                    data: {
+                      id: 'cont-2',
+                      user_id: 'u-1',
+                      name: 'Marcus Aurelius',
+                      email: 'marcus@example.com',
+                      phone: '+15559876543',
+                      company: 'Rome',
+                      hubspot_contact_id: 'hs-cont-456',
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'accounts') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: { name: 'Cosmedic Express' },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'deals') {
+            return {
+              select: () => ({
+                eq: async () => ({
+                  data: [
+                    {
+                      id: 'deal-1',
+                      hubspot_deal_id: 'hs-deal-789',
+                      notes: 'Initial deal notes',
+                    },
+                  ],
+                  error: null,
+                }),
+              }),
+              update: (patch: any) => ({
+                eq: async (col: string, val: string) => {
+                  updatedDeals.push({ ...patch, [col]: val });
+                  return { data: null, error: null };
+                },
+              }),
+            };
+          }
+          if (table === 'contact_notes') {
+            return {
+              insert: async (note: any) => {
+                insertedNotes.push(note);
+                return { data: null, error: null };
+              },
+            };
+          }
+          if (table === 'messages') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  is: () => ({
+                    order: async () => ({
+                      data: [
+                        {
+                          id: 'msg-img-1',
+                          sender_type: 'customer',
+                          content_type: 'image',
+                          content_text: 'Damage inspection photo',
+                          media_url: 'https://example.com/photo.jpg',
+                          media_type: 'image/jpeg',
+                          created_at: '2026-10-26T12:05:00Z',
+                          hubspot_communication_id: null,
+                          hubspot_note_id: null,
+                        },
+                      ],
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              update: (patch: any) => ({
+                eq: async (col: string, val: string) => {
+                  updatedMessages.push({ ...patch, [col]: val });
+                  return { data: null, error: null };
+                },
+              }),
+            };
+          }
+          return {
+            insert: () => Promise.resolve({ data: null, error: null }),
+          };
+        }),
+      } as unknown as any;
+
+      const fetchCalls: { url: string; body?: any }[] = [];
+      global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+        let body = null;
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            body = JSON.parse(init.body);
+          } catch {
+            body = init.body;
+          }
+        }
+        fetchCalls.push({ url, body });
+
+        if (url.includes('/associations/deals')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [{ toObjectId: 'hs-deal-999' }],
+            }),
+          });
+        }
+        if (url.includes('/files/v3/files')) {
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            json: async () => ({ id: 'hs-file-888', url: 'https://api.hubapi.com/files/888' }),
+          });
+        }
+        if (url.includes('/crm/v3/objects/notes')) {
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            json: async () => ({ id: 'note-media-100' }),
+          });
+        }
+        if (url.includes('/crm/v3/objects/communications')) {
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            json: async () => ({ id: 'comm-img-1' }),
+          });
+        }
+        if (url.includes('photo.jpg')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'image/jpeg' }),
+            arrayBuffer: async () => new ArrayBuffer(8),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      });
+
+      const res = await syncConversationChatToHubSpot({
+        supabase: mockSupabase,
+        accountId: 'acc-1',
+        conversationId: 'conv-2',
+        token: 'test-token',
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.mediaNotesCreatedCount).toBe(1);
+
+      // Verify Note API was called with both Contact and Deal associations
+      const noteCall = fetchCalls.find((c) => c.url.includes('/crm/v3/objects/notes'));
+      expect(noteCall).toBeDefined();
+      expect(noteCall?.body.properties.hs_note_body).toContain('Images shared on WhatsApp');
+      expect(noteCall?.body.properties.hs_note_body).toContain('Damage inspection photo');
+      expect(noteCall?.body.properties.hs_attachment_ids).toBe('hs-file-888');
+
+      // Contact association (202)
+      expect(noteCall?.body.associations).toContainEqual(
+        expect.objectContaining({
+          to: { id: 'hs-cont-456' },
+          types: expect.arrayContaining([
+            expect.objectContaining({ associationTypeId: 202 }),
+          ]),
+        })
+      );
+
+      // Deal associations (214) from HubSpot (hs-deal-999) and local (hs-deal-789)
+      expect(noteCall?.body.associations).toContainEqual(
+        expect.objectContaining({
+          to: { id: 'hs-deal-999' },
+          types: expect.arrayContaining([
+            expect.objectContaining({ associationTypeId: 214 }),
+          ]),
+        })
+      );
+      expect(noteCall?.body.associations).toContainEqual(
+        expect.objectContaining({
+          to: { id: 'hs-deal-789' },
+          types: expect.arrayContaining([
+            expect.objectContaining({ associationTypeId: 214 }),
+          ]),
+        })
+      );
+
+      // Verify local contact_notes and deals were updated
+      expect(insertedNotes).toHaveLength(1);
+      expect(insertedNotes[0].note_text).toContain('Images shared on WhatsApp');
+      expect(insertedNotes[0].contact_id).toBe('cont-2');
+
+      expect(updatedDeals).toHaveLength(1);
+      expect(updatedDeals[0].notes).toContain('[Images shared on WhatsApp]');
+      expect(updatedDeals[0].id).toBe('deal-1');
+
+      // Verify message row updated with hubspot_note_id
+      expect(updatedMessages).toContainEqual(
+        expect.objectContaining({
+          id: 'msg-img-1',
+          hubspot_note_id: 'note-media-100',
+        })
+      );
+    });
+  });
+
+  describe('formatWhatsAppMediaNote', () => {
+    it('formats image note without caption', () => {
+      const res = formatWhatsAppMediaNote('image', null, 'https://cdn.example.com/img.jpg');
+      expect(res.title).toBe('Images shared on WhatsApp');
+      expect(res.htmlBody).toContain('Images shared on WhatsApp');
+      expect(res.htmlBody).toContain('https://cdn.example.com/img.jpg');
+      expect(res.plainText).toContain('Images shared on WhatsApp');
+    });
+
+    it('formats image note with caption', () => {
+      const res = formatWhatsAppMediaNote('image', 'Prescription details', 'https://cdn.example.com/rx.jpg');
+      expect(res.title).toBe('Images shared on WhatsApp');
+      expect(res.htmlBody).toContain('Prescription details');
+      expect(res.plainText).toContain('Caption: Prescription details');
+    });
+
+    it('formats video note with custom title and filename', () => {
+      const res = formatWhatsAppMediaNote('video', 'Clinic walkthrough', 'https://cdn.example.com/walkthrough.mp4', 'clinic.mp4');
+      expect(res.title).toBe('Videos shared on WhatsApp');
+      expect(res.htmlBody).toContain('Videos shared on WhatsApp');
+      expect(res.htmlBody).toContain('clinic.mp4');
+      expect(res.plainText).toContain('Videos shared on WhatsApp');
+    });
+  });
+
+  describe('getHubSpotContactDeals', () => {
+    it('returns deal IDs from v4 associations endpoint', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          results: [{ toObjectId: '101' }, { toObjectId: '202' }],
+        }),
+      });
+
+      const deals = await getHubSpotContactDeals('token', 'cont-1');
+      expect(deals).toEqual(['101', '202']);
+    });
+
+    it('falls back to v3 associations parameter when v4 fails', async () => {
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/crm/v4/')) {
+          return Promise.resolve({ ok: false, status: 404 });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            associations: {
+              deals: {
+                results: [{ id: '303' }],
+              },
+            },
+          }),
+        });
+      });
+
+      const deals = await getHubSpotContactDeals('token', 'cont-1');
+      expect(deals).toEqual(['303']);
+    });
+  });
+
+  describe('createHubSpotMediaNote', () => {
+    it('creates note with contact (202) and deal (214) associations and file attachment', async () => {
+      let requestBody: any = null;
+      global.fetch = vi.fn().mockImplementation((_url: string, init: any) => {
+        requestBody = JSON.parse(init.body);
+        return Promise.resolve({
+          status: 201,
+          json: async () => ({ id: 'new-note-id' }),
+        });
+      });
+
+      const res = await createHubSpotMediaNote('token', {
+        hubspotContactId: 'c-100',
+        dealIds: ['d-200', 'd-300'],
+        noteBody: '<p>Images shared on WhatsApp</p>',
+        fileId: 'file-999',
+      });
+
+      expect(res).toEqual({ id: 'new-note-id' });
+      expect(requestBody.properties.hs_attachment_ids).toBe('file-999');
+      expect(requestBody.properties.hs_note_body).toBe('<p>Images shared on WhatsApp</p>');
+      expect(requestBody.associations).toEqual([
+        {
+          to: { id: 'c-100' },
+          types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }],
+        },
+        {
+          to: { id: 'd-200' },
+          types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }],
+        },
+        {
+          to: { id: 'd-300' },
+          types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }],
+        },
+      ]);
     });
   });
 });

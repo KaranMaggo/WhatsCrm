@@ -185,6 +185,7 @@ export async function POST(request: Request) {
       email: result.email,
       chatSynced: !!chatResult?.ok,
       noteCreated: chatResult?.noteCreated ?? false,
+      mediaNotesCreatedCount: chatResult?.mediaNotesCreatedCount ?? 0,
       messagesSyncedCount: chatResult?.messagesSyncedCount ?? 0,
     });
   } catch (err) {

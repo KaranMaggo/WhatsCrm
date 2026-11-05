@@ -17,7 +17,7 @@ export interface HubSpotSyncLog {
   contact_name?: string | null;
   email?: string | null;
   phone?: string | null;
-  action: 'created' | 'updated' | 'failed' | 'note_created' | 'message_logged' | 'chat_synced';
+  action: 'created' | 'updated' | 'failed' | 'note_created' | 'media_note_created' | 'message_logged' | 'chat_synced';
   hubspot_contact_id?: string | null;
   status: 'success' | 'error';
   error_message?: string | null;
