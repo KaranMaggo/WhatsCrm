@@ -38,15 +38,28 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
 
 /**
  * Format a per-customer subfolder under account-<id>, e.g.:
- *   contact-<contact_id>/inbound
- *   contact-<contact_id>/outbound
+ *   "<Contact Name> - <id>/inbound"
+ *   "contact-<contact_id>/inbound" (when name is omitted)
  */
 export function buildCustomerSubfolder(
   contactId: string,
   segment: "inbound" | "outbound" | string,
+  contactName?: string | null,
 ): string {
-  const normalized = contactId.startsWith("contact-") ? contactId : `contact-${contactId}`;
-  return `${normalized}/${segment}`;
+  const cleanId = contactId.replace(/^contact-/, "");
+  const shortId = cleanId.length > 8 ? cleanId.slice(0, 8) : cleanId;
+
+  const cleanName = (contactName || "")
+    .trim()
+    .replace(/[/\\?%*:|"<>]/g, "_")
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+
+  const folderName = cleanName
+    ? `${cleanName} - ${shortId}`
+    : (contactId.startsWith("contact-") ? contactId : `contact-${contactId}`);
+
+  return segment ? `${folderName}/${segment}` : folderName;
 }
 
 /**

@@ -58,6 +58,15 @@ describe("buildCustomerSubfolder", () => {
     expect(buildCustomerSubfolder("contact-123", "inbound")).toBe("contact-123/inbound");
   });
 
+  it("formats folder with customer name and unique id when name is provided", () => {
+    expect(buildCustomerSubfolder("4f027bcb-a649-4ca5", "inbound", "Karan Maggo")).toBe(
+      "Karan Maggo - 4f027bcb/inbound",
+    );
+    expect(buildCustomerSubfolder("4f027bcb", "outbound", "Jane Doe")).toBe(
+      "Jane Doe - 4f027bcb/outbound",
+    );
+  });
+
   it("produces valid account-scoped paths when combined with buildMediaPath", () => {
     const subfolder = buildCustomerSubfolder("123", "inbound");
     const path = buildMediaPath(ACCOUNT, "photo.png", null, subfolder);

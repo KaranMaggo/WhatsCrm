@@ -463,7 +463,7 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const subfolder = contact?.id ? buildCustomerSubfolder(contact.id, "outbound") : undefined;
+        const subfolder = contact?.id ? buildCustomerSubfolder(contact.id, "outbound", contact.name) : undefined;
         const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file, subfolder);
         // Replacing an existing draft? GC the previous object first.
         removeStaged(draftRef.current?.path);
@@ -502,7 +502,7 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const subfolder = contact?.id ? buildCustomerSubfolder(contact.id, "outbound") : undefined;
+        const subfolder = contact?.id ? buildCustomerSubfolder(contact.id, "outbound", contact.name) : undefined;
         const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file, subfolder);
         removeStaged(draftRef.current?.path);
         setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });

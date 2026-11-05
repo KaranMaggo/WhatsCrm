@@ -57,6 +57,8 @@ export interface MirrorInboundMediaArgs {
   accountId: string;
   /** Customer/contact ID for per-customer storage organization. */
   contactId?: string | null;
+  /** Customer/contact name for readable per-customer storage folders. */
+  contactName?: string | null;
   /** Meta's media id. Makes the object path deterministic. */
   mediaId: string;
   /** Short-lived CDN URL from `getMediaUrl`. */
@@ -159,6 +161,7 @@ export async function mirrorInboundMedia(
     storage,
     accountId,
     contactId,
+    contactName,
     mediaId,
     downloadUrl,
     accessToken,
@@ -213,7 +216,7 @@ export async function mirrorInboundMedia(
     // already makes this path unique AND stable, and it's the stability
     // that makes a redelivery idempotent rather than duplicative.
     const subfolder = contactId
-      ? buildCustomerSubfolder(contactId, MIRROR_FOLDER)
+      ? buildCustomerSubfolder(contactId, MIRROR_FOLDER, contactName)
       : MIRROR_FOLDER;
     const path = buildMediaPath(accountId, objectName, null, subfolder);
 

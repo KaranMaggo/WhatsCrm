@@ -23,6 +23,7 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { getHubSpotConfigForAccount } from '@/lib/integrations/hubspot-config'
+import { syncCustomerDetailsToStorage } from '@/lib/storage/customer-storage'
 import {
   syncContactToHubSpot,
   syncConversationChatToHubSpot,
@@ -723,12 +724,21 @@ async function processMessage(
     return
   }
 
+  // Best-effort sync of customer details into storage
+  if (mirrorMedia && contactRecord && process.env.NODE_ENV !== 'test') {
+    void syncCustomerDetailsToStorage(
+      supabaseAdmin().storage,
+      accountId,
+      contactRecord
+    )
+  }
+
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(
       message,
       accessToken,
-      mirrorMedia ? { accountId, contactId: contactRecord.id } : null
+      mirrorMedia ? { accountId, contactId: contactRecord.id, contactName: contactRecord.name } : null
     )
 
   // Resolve swipe-reply context if present. A missing parent is fine —
@@ -1150,7 +1160,7 @@ async function parseMessageContent(
   accessToken: string,
   // Tenancy + opt-out for the media mirror. Null disables mirroring
   // entirely, which is what the account-level toggle does.
-  mirror: { accountId: string; contactId?: string | null } | null
+  mirror: { accountId: string; contactId?: string | null; contactName?: string | null } | null
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -1193,6 +1203,7 @@ async function parseMessageContent(
           storage: supabaseAdmin().storage,
           accountId: mirror.accountId,
           contactId: mirror.contactId,
+          contactName: mirror.contactName,
           mediaId,
           downloadUrl: info.url,
           accessToken,

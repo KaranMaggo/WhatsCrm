@@ -34,7 +34,8 @@ export async function syncCustomerDetailsToStorage(
     if (!contact?.id || !accountId) return null;
 
     const contactId = String(contact.id);
-    const subfolder = buildCustomerSubfolder(contactId, "");
+    const contactName = (contact.name as string) ?? null;
+    const subfolder = buildCustomerSubfolder(contactId, "", contactName);
     const customerDir = subfolder.endsWith("/") ? subfolder.slice(0, -1) : subfolder;
     const path = `account-${accountId}/${customerDir}/customer_details.json`;
 

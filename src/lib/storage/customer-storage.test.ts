@@ -35,8 +35,8 @@ describe("syncCustomerDetailsToStorage", () => {
 
     expect(uploads).toHaveLength(1);
     expect(uploads[0].bucket).toBe("chat-media");
-    expect(uploads[0].path).toBe("account-acc-999/contact-cust-12345/customer_details.json");
-    expect(url).toBe("https://storage.test/chat-media/account-acc-999/contact-cust-12345/customer_details.json");
+    expect(uploads[0].path).toBe("account-acc-999/Jane Doe - cust-123/customer_details.json");
+    expect(url).toBe("https://storage.test/chat-media/account-acc-999/Jane Doe - cust-123/customer_details.json");
 
     const savedData = JSON.parse(uploads[0].body.toString("utf-8"));
     expect(savedData.name).toBe("Jane Doe");
