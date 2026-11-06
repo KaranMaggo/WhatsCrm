@@ -739,6 +739,7 @@ export async function uploadFileToHubSpot(
     fileBuffer: Buffer | Uint8Array;
     mimeType?: string;
     folderPath?: string;
+    access?: 'PRIVATE' | 'PUBLIC_INDEXABLE' | 'PUBLIC_NOT_INDEXABLE';
   }
 ): Promise<{ id: string; url?: string } | null> {
   if (!token?.trim() || !options.fileBuffer) return null;
@@ -750,7 +751,7 @@ export async function uploadFileToHubSpot(
     });
     formData.append('file', blob, options.fileName);
     formData.append('fileName', options.fileName);
-    formData.append('options', JSON.stringify({ access: 'PUBLIC_NOT_INDEXABLE' }));
+    formData.append('options', JSON.stringify({ access: options.access || 'PRIVATE' }));
     formData.append('folderPath', options.folderPath || '/WhatsApp Media');
 
     const cleanToken = token.trim().replace(/^Bearer\s+/i, '');

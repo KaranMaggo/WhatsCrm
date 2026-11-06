@@ -1072,6 +1072,32 @@ describe('HubSpot Integration Client', () => {
     });
   });
 
+  describe('uploadFileToHubSpot', () => {
+    it('uploads file with default access PRIVATE', async () => {
+      let sentFormData: any = null;
+      global.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+        if (url.includes('/files/v3/files')) {
+          sentFormData = init.body;
+          return Promise.resolve({
+            status: 201,
+            json: async () => ({ id: 'hs-priv-file-123', url: 'https://api.hubapi.com/files/123' }),
+          });
+        }
+        return Promise.resolve({ status: 200, json: async () => ({}) });
+      });
+
+      const res = await uploadFileToHubSpot('token', {
+        fileName: 'test.jpg',
+        fileBuffer: Buffer.from('hello'),
+        mimeType: 'image/jpeg',
+      });
+
+      expect(res).toEqual({ id: 'hs-priv-file-123', url: 'https://api.hubapi.com/files/123' });
+      expect(sentFormData.get('options')).toBe(JSON.stringify({ access: 'PRIVATE' }));
+      expect(sentFormData.get('folderPath')).toBe('/WhatsApp Media');
+    });
+  });
+
   describe('createHubSpotMediaNote', () => {
     it('creates note with contact (202) and deal (214) associations and file attachment', async () => {
       let requestBody: any = null;
