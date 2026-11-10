@@ -192,9 +192,40 @@ export function evaluateConditionPredicate(args: {
     case "equals":
       if (args.subjectValue === undefined) return false;
       return args.subjectValue === (args.configValue ?? "");
-    case "contains":
+    case "contains": {
       if (args.subjectValue === undefined) return false;
-      return args.subjectValue.includes(args.configValue ?? "");
+      const val = (args.configValue ?? "").trim();
+      if (!val) return false;
+      const sub = args.subjectValue.trim();
+      if (sub.includes(val)) return true;
+
+      const subLower = sub.toLowerCase();
+      const valLower = val.toLowerCase();
+      if (subLower.includes(valLower)) return true;
+
+      // Allow comma-separated alternatives, e.g. "1, face"
+      const alternatives = valLower
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (
+        alternatives.length > 1 &&
+        alternatives.some((alt) => subLower.includes(alt))
+      ) {
+        return true;
+      }
+
+      // If user typed a full option phrase like "1 - Face" and customer typed "1" or "face"
+      const tokens = valLower.split(/[\s,-]+/).filter((t) => t.length > 0);
+      if (
+        tokens.length > 1 &&
+        tokens.some((t) => subLower === t || subLower.includes(t))
+      ) {
+        return true;
+      }
+
+      return false;
+    }
   }
 }
 

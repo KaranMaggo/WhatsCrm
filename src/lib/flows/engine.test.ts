@@ -510,6 +510,65 @@ describe("evaluateConditionPredicate", () => {
     ).toBe(false);
   });
 
+  it("contains: case-insensitive, token and option matching", () => {
+    // Exact casing difference
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "Face",
+        configValue: "face",
+      }),
+    ).toBe(true);
+
+    // Menu option format " 1 - Face" matched by customer typing "1-face", "Face", or "1"
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "1-face",
+        configValue: " 1 - Face",
+      }),
+    ).toBe(true);
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "Face",
+        configValue: " 1 - Face",
+      }),
+    ).toBe(true);
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "1",
+        configValue: " 1 - Face",
+      }),
+    ).toBe(true);
+
+    // Negative matches
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "2",
+        configValue: " 1 - Face",
+      }),
+    ).toBe(false);
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "Body",
+        configValue: " 1 - Face",
+      }),
+    ).toBe(false);
+
+    // Comma-separated alternatives
+    expect(
+      evaluateConditionPredicate({
+        operator: "contains",
+        subjectValue: "Option 2",
+        configValue: "1, 2, 3",
+      }),
+    ).toBe(true);
+  });
+
   it("contains: undefined subject never matches", () => {
     expect(
       evaluateConditionPredicate({
