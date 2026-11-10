@@ -256,7 +256,7 @@ export async function POST(request: Request) {
         sender_type: 'customer',
         content_type: 'text',
         content_text: messageContent,
-        status: 'received',
+        status: 'delivered',
         created_at: nowIso,
       })
       .select()
