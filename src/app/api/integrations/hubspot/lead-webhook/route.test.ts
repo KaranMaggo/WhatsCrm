@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, GET } from './route';
 
-vi.mock('@/lib/supabase/admin', () => ({
+vi.mock('@/lib/flows/admin-client', () => ({
   supabaseAdmin: vi.fn(),
 }));
 
@@ -13,7 +13,7 @@ vi.mock('@/lib/webhooks/deliver', () => ({
   dispatchWebhookEvent: vi.fn(),
 }));
 
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 
 describe('HubSpot Lead Webhook Route', () => {

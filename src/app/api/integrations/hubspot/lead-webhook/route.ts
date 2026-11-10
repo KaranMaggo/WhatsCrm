@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 
