@@ -8,3 +8,4 @@ ALTER TABLE whatsapp_config
 
 COMMENT ON COLUMN whatsapp_config.app_id IS 'Optional per-account Meta App ID (overrides env META_APP_ID)';
 COMMENT ON COLUMN whatsapp_config.app_secret IS 'Optional per-account Meta App Secret (AES-256-GCM encrypted, overrides/augments env META_APP_SECRET)';
+
