@@ -124,11 +124,24 @@ export async function GET() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
+    let { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, waba_id, access_token, status')
+      .select('phone_number_id, waba_id, access_token, status, app_id, app_secret')
       .eq('account_id', accountId)
       .maybeSingle()
+
+    if (configError) {
+      // If columns do not exist yet (migration 054 pending), fallback
+      const fallback = await supabase
+        .from('whatsapp_config')
+        .select('phone_number_id, waba_id, access_token, status')
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (!fallback.error) {
+        config = fallback.data as any
+        configError = null
+      }
+    }
 
     if (configError) {
       console.error('Error fetching whatsapp_config:', configError)
@@ -206,7 +219,8 @@ export async function GET() {
     if (config.waba_id) {
       try {
         const subs = await getSubscribedApps({ wabaId: config.waba_id, accessToken })
-        const state = appSubscriptionState(subs, process.env.META_APP_ID)
+        const targetAppId = (config as any)?.app_id || process.env.META_APP_ID
+        const state = appSubscriptionState(subs, targetAppId)
         wabaSubscription = {
           checked: true,
           subscribed: state.subscribed,
@@ -227,6 +241,8 @@ export async function GET() {
       connected: true,
       phone_info: phoneInfo,
       waba_subscription: wabaSubscription,
+      app_id: (config as any)?.app_id || null,
+      has_app_secret: !!(config as any)?.app_secret,
     })
   } catch (error) {
     console.error('Error in WhatsApp config GET:', error)
@@ -270,7 +286,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const { phone_number_id, waba_id, access_token, verify_token, pin, app_id, app_secret } = body
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
@@ -299,6 +315,17 @@ export async function POST(request: Request) {
           error:
             t('whatsappConfig.wabaIdDigits'),
           field: 'waba_id',
+        },
+        { status: 400 }
+      )
+    }
+    const trimmedAppId = typeof app_id === 'string' ? app_id.trim() : null
+    if (trimmedAppId && !isNumericMetaId(trimmedAppId)) {
+      return NextResponse.json(
+        {
+          error:
+            t('whatsappConfig.appIdDigits'),
+          field: 'app_id',
         },
         { status: 400 }
       )
@@ -396,21 +423,41 @@ export async function POST(request: Request) {
     // around), and we need the stored verify_token — the settings form
     // never shows it, so a save that leaves the field blank must keep it
     // rather than null it out.
-    const { data: existing } = await supabase
+    let { data: existing } = await supabase
       .from('whatsapp_config')
-      .select('id, registered_at, phone_number_id, verify_token')
+      .select('id, registered_at, phone_number_id, verify_token, app_secret')
       .eq('account_id', accountId)
       .maybeSingle()
+
+    if (!existing) {
+      const fallbackExisting = await supabase
+        .from('whatsapp_config')
+        .select('id, registered_at, phone_number_id, verify_token')
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (fallbackExisting.data) {
+        existing = fallbackExisting.data as any
+      }
+    }
 
     // Encrypt sensitive tokens before storing
     let encryptedAccessToken: string
     let encryptedVerifyToken: string | null
+    let encryptedAppSecret: string | null = (existing as any)?.app_secret ?? null
     try {
       encryptedAccessToken = encrypt(access_token)
       encryptedVerifyToken = resolveVerifyTokenForSave(
         verify_token,
         existing?.verify_token ?? null
       )
+      if (app_secret !== undefined) {
+        const trimmedSecret = typeof app_secret === 'string' ? app_secret.trim() : ''
+        if (trimmedSecret === '') {
+          encryptedAppSecret = null
+        } else if (trimmedSecret !== '••••••••' && trimmedSecret !== '••••••••••••••••') {
+          encryptedAppSecret = encrypt(trimmedSecret)
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown encryption error'
       console.error('Encryption failed:', message)
@@ -503,7 +550,7 @@ export async function POST(request: Request) {
     // Persist everything in one shot. If /register failed we still
     // store the credentials and the error so the UI can guide the
     // user through a retry.
-    const baseRow = {
+    const baseRow: Record<string, unknown> = {
       phone_number_id,
       waba_id: waba_id || null,
       access_token: encryptedAccessToken,
@@ -514,13 +561,27 @@ export async function POST(request: Request) {
       subscribed_apps_at: subscribedAppsAt ?? null,
       last_registration_error: registrationError,
       updated_at: new Date().toISOString(),
+      ...(trimmedAppId !== undefined ? { app_id: trimmedAppId || null } : {}),
+      ...(app_secret !== undefined ? { app_secret: encryptedAppSecret } : {}),
     }
 
     if (existing) {
-      const { error: updateError } = await supabase
+      let { error: updateError } = await supabase
         .from('whatsapp_config')
         .update(baseRow)
         .eq('account_id', accountId)
+
+      if (updateError && (updateError.message.includes('app_id') || updateError.message.includes('app_secret'))) {
+        const fallbackRow = { ...baseRow }
+        delete fallbackRow.app_id
+        delete fallbackRow.app_secret
+        updateError = (
+          await supabase
+            .from('whatsapp_config')
+            .update(fallbackRow)
+            .eq('account_id', accountId)
+        ).error
+      }
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
@@ -534,13 +595,28 @@ export async function POST(request: Request) {
       // (NOT NULL post-017, UNIQUE so duplicates trip the constraint
       // up-front), `user_id` is the audit column identifying which
       // member of the account saved the config.
-      const { error: insertError } = await supabase
+      let { error: insertError } = await supabase
         .from('whatsapp_config')
         .insert({
           account_id: accountId,
           user_id: user.id,
           ...baseRow,
         })
+
+      if (insertError && (insertError.message.includes('app_id') || insertError.message.includes('app_secret'))) {
+        const fallbackRow = { ...baseRow }
+        delete fallbackRow.app_id
+        delete fallbackRow.app_secret
+        insertError = (
+          await supabase
+            .from('whatsapp_config')
+            .insert({
+              account_id: accountId,
+              user_id: user.id,
+              ...fallbackRow,
+            })
+        ).error
+      }
 
       if (insertError) {
         console.error('Error inserting whatsapp_config:', insertError)

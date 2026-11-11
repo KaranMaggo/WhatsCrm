@@ -173,7 +173,7 @@ export async function POST(request: Request) {
       // an actionable message (missing META_APP_ID, unreachable URL,
       // wrong type/size).
       try {
-        await ensureMediaHeaderHandle(payload, accessToken)
+        await ensureMediaHeaderHandle(payload, accessToken, config.app_id)
       } catch (e) {
         return NextResponse.json(
           { error: e instanceof Error ? e.message : t('templates.headerUploadFailed') },

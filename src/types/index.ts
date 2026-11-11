@@ -304,6 +304,12 @@ export interface WhatsAppConfig {
   waba_id?: string;
   access_token: string;
   verify_token?: string;
+  /** Optional per-account Meta App ID (overrides META_APP_ID). */
+  app_id?: string | null;
+  /** Optional per-account Meta App Secret (overrides/augments META_APP_SECRET). */
+  app_secret?: string | null;
+  /** Indicates whether an encrypted app_secret is stored on the server. */
+  has_app_secret?: boolean;
   status: 'connected' | 'disconnected';
   connected_at?: string;
   /**

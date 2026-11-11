@@ -230,7 +230,35 @@ export async function POST(request: Request) {
   const rawBody = await request.text()
   const signature = request.headers.get('x-hub-signature-256')
 
-  if (!verifyMetaWebhookSignature(rawBody, signature)) {
+  let signatureValid = verifyMetaWebhookSignature(rawBody, signature)
+  if (!signatureValid) {
+    try {
+      const { data: configs } = await supabaseAdmin()
+        .from('whatsapp_config')
+        .select('app_secret')
+        .not('app_secret', 'is', null)
+
+      if (configs && configs.length > 0) {
+        const extraSecrets: string[] = []
+        for (const c of configs) {
+          if (c.app_secret) {
+            try {
+              extraSecrets.push(decrypt(c.app_secret))
+            } catch {
+              // Ignore corrupted secret
+            }
+          }
+        }
+        if (extraSecrets.length > 0) {
+          signatureValid = verifyMetaWebhookSignature(rawBody, signature, extraSecrets)
+        }
+      }
+    } catch (err) {
+      console.error('[webhook] error looking up custom app_secrets:', err)
+    }
+  }
+
+  if (!signatureValid) {
     // 401 (not 200) — we want Meta's delivery dashboard to show failures
     // loudly if a misconfiguration causes signatures to stop matching,
     // rather than silently eating events.

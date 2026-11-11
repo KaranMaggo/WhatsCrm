@@ -28,6 +28,7 @@ const unreachableMessage = () => t('headerUrlUnreachable')
 export async function ensureMediaHeaderHandle(
   payload: TemplatePayload,
   accessToken: string,
+  customAppId?: string | null,
 ): Promise<void> {
   const kind = payload.header_type
   if (!isMediaHeaderKind(kind)) return
@@ -36,7 +37,7 @@ export async function ensureMediaHeaderHandle(
 
   const spec = MEDIA_HEADER_SPECS[kind]
 
-  const appId = process.env.META_APP_ID
+  const appId = customAppId || process.env.META_APP_ID
   if (!appId) {
     throw new Error(t('metaAppIdRequired'))
   }

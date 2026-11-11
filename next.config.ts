@@ -68,6 +68,47 @@ const APP_LOCALE = ["en", "pt", "es", "ko"].includes(process.env.NEXT_PUBLIC_APP
   : "en";
 
 const nextConfig: NextConfig = {
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return [
+      {
+        source: "/api/hubspot/lead-webhook",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/hubspot/lead-webhook/",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/integrations/hubspot/lead-webhook/",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/hubspot/webhook",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/hubspot/webhook/",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/integrations/hubspot/webhook",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/integrations/hubspot/webhook/",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/lead-webhook",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+      {
+        source: "/api/lead-webhook/",
+        destination: "/api/integrations/hubspot/lead-webhook",
+      },
+    ];
+  },
   turbopack: {
     resolveAlias: {
       "@app-messages": `./messages/${APP_LOCALE}.json`,

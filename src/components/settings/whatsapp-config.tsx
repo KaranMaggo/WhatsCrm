@@ -103,6 +103,11 @@ export function WhatsAppConfig() {
   const [accessToken, setAccessToken] = useState('');
   const [verifyToken, setVerifyToken] = useState('');
   const [pin, setPin] = useState('');
+  const [appId, setAppId] = useState('');
+  const [appSecret, setAppSecret] = useState('');
+  const [showAppSecret, setShowAppSecret] = useState(false);
+  const [hasAppSecret, setHasAppSecret] = useState(false);
+  const [appSecretEdited, setAppSecretEdited] = useState(false);
   const [tokenEdited, setTokenEdited] = useState(false);
   const [verifyEdited, setVerifyEdited] = useState(false);
 
@@ -163,6 +168,10 @@ export function WhatsAppConfig() {
         setConfig(data);
         setPhoneNumberId(data.phone_number_id || '');
         setWabaId(data.waba_id || '');
+        setAppId(data.app_id || '');
+        setAppSecret(data.app_secret ? MASKED_TOKEN : '');
+        setHasAppSecret(!!data.app_secret);
+        setAppSecretEdited(false);
         setAccessToken(MASKED_TOKEN);
         // Same treatment as the access token: the row carries the encrypted
         // value, which is enough to know one exists. Show a mask instead of
@@ -178,6 +187,10 @@ export function WhatsAppConfig() {
         setConfig(null);
         setPhoneNumberId('');
         setWabaId('');
+        setAppId('');
+        setAppSecret('');
+        setHasAppSecret(false);
+        setAppSecretEdited(false);
         setAccessToken('');
         setVerifyToken('');
         setPin('');
@@ -294,6 +307,10 @@ export function WhatsAppConfig() {
       const payload: Record<string, unknown> = {
         phone_number_id: phoneNumberId.trim(),
         waba_id: wabaId.trim() || null,
+        app_id: appId.trim() || null,
+        ...(appSecretEdited && appSecret !== MASKED_TOKEN
+          ? { app_secret: appSecret.trim() || null }
+          : {}),
         // Only sent when the user actually typed one. Left out otherwise
         // (undefined is dropped from the JSON body) so the server keeps the
         // stored token instead of nulling it — see resolveVerifyTokenForSave.
@@ -848,6 +865,70 @@ export function WhatsAppConfig() {
               <p className="text-xs text-muted-foreground leading-relaxed">
                 <span dangerouslySetInnerHTML={{ __html: t('pinHint') }} />
               </p>
+            </div>
+
+            <div className="pt-3 border-t border-border space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-foreground">
+                  {t('metaAppSectionTitle')}
+                </h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t('metaAppSectionDesc')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">
+                  {t('metaAppId')}
+                  <span className="ml-1 text-muted-foreground">{t('optional')}</span>
+                </Label>
+                <Input
+                  placeholder={t('metaAppIdPlaceholder')}
+                  value={appId}
+                  onChange={(e) => setAppId(e.target.value)}
+                  className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('metaAppIdHint')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">
+                  {t('metaAppSecret')}
+                  <span className="ml-1 text-muted-foreground">{t('optional')}</span>
+                </Label>
+                <div className="relative">
+                  <Input
+                    type={showAppSecret ? 'text' : 'password'}
+                    placeholder={t('metaAppSecretPlaceholder')}
+                    value={appSecret}
+                    onChange={(e) => {
+                      setAppSecret(e.target.value);
+                      setAppSecretEdited(true);
+                    }}
+                    onFocus={() => {
+                      if (appSecret === MASKED_TOKEN) {
+                        setAppSecret('');
+                        setAppSecretEdited(true);
+                      }
+                    }}
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAppSecret(!showAppSecret)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showAppSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {hasAppSecret && !appSecretEdited
+                    ? t('metaAppSecretSaved')
+                    : t('metaAppSecretHint')}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
