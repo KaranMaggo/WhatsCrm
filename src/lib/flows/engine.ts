@@ -40,6 +40,12 @@ import {
   engineSendText,
 } from "./meta-send";
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
+import {
+  extractStepOptions,
+  extractStepPrompt,
+  matchLiteralOption,
+  evaluateSemanticStepMatch,
+} from "./semantic-match";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
 import { loadAiConfig } from "@/lib/ai/config";
@@ -1563,11 +1569,14 @@ async function handleReplyForActiveRun(
     return { consumed: true, flow_run_id: run.id, outcome: "no_match" };
   }
 
-  // Two ways a reply can advance:
-  //   1. Interactive button/list tap on a send_buttons/send_list node.
-  //   2. Text reply on a collect_input node — capture into vars.
+  // Ways a reply can advance:
+  //   1. Interactive button/list tap on send_buttons/send_list.
+  //   2. Literal text match (number or title) on send_buttons/send_list.
+  //   3. AI semantic intent match on send_buttons/send_list (e.g. "Tummy tuck" -> "Body").
+  //   4. Text reply on collect_input (if not an off-topic inquiry).
+  //   5. Text reply on wait_for_reply node.
   //
-  // Everything else falls through to the fallback policy below.
+  // Everything else falls through to the AI / flow fallback policy below.
   let matched: string | null = null;
   if (
     message.kind === "interactive_reply" &&
@@ -1577,31 +1586,106 @@ async function handleReplyForActiveRun(
     matched = matchReplyId(currentNode, message.reply_id);
   } else if (
     message.kind === "text" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    const stepOptions = extractStepOptions(currentNode);
+    // 1. Literal matching first (e.g. "1", "2", "3", "Body", "Breast")
+    const literal = matchLiteralOption(message.text, stepOptions);
+    if (literal) {
+      matched = literal.next_node_key;
+      await logEvent(db, run.id, "node_entered", currentNode.node_key, {
+        matched_option: literal.title,
+        match_type: "literal_text",
+      });
+    } else {
+      // 2. Semantic AI matching (e.g. "Tummy tuck" -> "Body")
+      try {
+        const aiConfig = await loadAiConfig(db, run.account_id, {
+          requireActive: false,
+        });
+        if (aiConfig?.apiKey) {
+          const stepPrompt = extractStepPrompt(currentNode);
+          const semantic = await evaluateSemanticStepMatch({
+            aiConfig,
+            stepPrompt,
+            options: stepOptions,
+            customerReply: message.text,
+          });
+
+          if (semantic.is_relevant_answer && semantic.matched_option) {
+            matched = semantic.matched_option.next_node_key;
+            if (semantic.inferred_value) {
+              const newVars = {
+                ...run.vars,
+                _last_answer: semantic.inferred_value,
+              };
+              await db
+                .from("flow_runs")
+                .update({ vars: newVars })
+                .eq("id", run.id);
+              run.vars = newVars;
+            }
+            await logEvent(db, run.id, "node_entered", currentNode.node_key, {
+              matched_option: semantic.matched_option.title,
+              inferred_value: semantic.inferred_value,
+              match_type: "ai_semantic",
+              reason: semantic.reason,
+            });
+          }
+        }
+      } catch (semErr) {
+        console.error("[flows] semantic step match error:", semErr);
+      }
+    }
+  } else if (
+    message.kind === "text" &&
     currentNode.node_type === "collect_input"
   ) {
     const cfg = currentNode.config as unknown as CollectInputNodeConfig;
     const captured = message.text.trim();
-    if (captured.length > 0 && cfg.var_key) {
-      // Persist captured value + reset reprompt count atomically.
-      const newVars = { ...run.vars, [cfg.var_key]: captured };
-      const { error: capErr } = await db
-        .from("flow_runs")
-        .update({
-          vars: newVars,
-          reprompt_count: 0,
-        })
-        .eq("id", run.id);
-      if (!capErr) {
-        // Mirror the UPDATE in-memory so downstream interpolation in
-        // the advance loop sees the captured var without us having to
-        // re-SELECT the whole row.
-        run.vars = newVars;
-        run.reprompt_count = 0;
-        await logEvent(db, run.id, "node_entered", currentNode.node_key, {
-          captured_key: cfg.var_key,
-          captured_length: captured.length,
+    if (captured.length > 0) {
+      // Check if customer asked an inquiry question instead of answering
+      let isOffTopicQuestion = false;
+      try {
+        const aiConfig = await loadAiConfig(db, run.account_id, {
+          requireActive: false,
         });
-        matched = cfg.next_node_key;
+        if (aiConfig?.apiKey) {
+          const stepPrompt = extractStepPrompt(currentNode);
+          const semantic = await evaluateSemanticStepMatch({
+            aiConfig,
+            stepPrompt,
+            options: [],
+            customerReply: captured,
+          });
+          if (semantic.is_question_or_inquiry && !semantic.is_relevant_answer) {
+            isOffTopicQuestion = true;
+          }
+        }
+      } catch (err) {
+        console.error("[flows] collect_input semantic check error:", err);
+      }
+
+      if (!isOffTopicQuestion && cfg.var_key) {
+        // Persist captured value + reset reprompt count atomically.
+        const newVars = { ...run.vars, [cfg.var_key]: captured };
+        const { error: capErr } = await db
+          .from("flow_runs")
+          .update({
+            vars: newVars,
+            reprompt_count: 0,
+          })
+          .eq("id", run.id);
+        if (!capErr) {
+          run.vars = newVars;
+          run.reprompt_count = 0;
+          await logEvent(db, run.id, "node_entered", currentNode.node_key, {
+            captured_key: cfg.var_key,
+            captured_length: captured.length,
+          });
+          matched = cfg.next_node_key;
+        }
       }
     }
   } else if (
@@ -1621,25 +1705,51 @@ async function handleReplyForActiveRun(
           ? message.reply_title?.trim() || message.reply_id
           : "";
 
-    if (cfg.var_key && replyText) {
-      const newVars = { ...run.vars, [cfg.var_key]: replyText };
-      const { error: capErr } = await db
-        .from("flow_runs")
-        .update({
-          vars: newVars,
-          reprompt_count: 0,
-        })
-        .eq("id", run.id);
-      if (!capErr) {
-        run.vars = newVars;
-        run.reprompt_count = 0;
-        await logEvent(db, run.id, "node_entered", currentNode.node_key, {
-          captured_key: cfg.var_key,
-          captured_length: replyText.length,
+    // If customer asked a question rather than answering, check AI
+    let isOffTopicQuestion = false;
+    if (message.kind === "text" && replyText.length > 0) {
+      try {
+        const aiConfig = await loadAiConfig(db, run.account_id, {
+          requireActive: false,
         });
+        if (aiConfig?.apiKey) {
+          const stepPrompt = extractStepPrompt(currentNode);
+          const semantic = await evaluateSemanticStepMatch({
+            aiConfig,
+            stepPrompt,
+            options: [],
+            customerReply: replyText,
+          });
+          if (semantic.is_question_or_inquiry && !semantic.is_relevant_answer) {
+            isOffTopicQuestion = true;
+          }
+        }
+      } catch (err) {
+        console.error("[flows] wait_for_reply semantic check error:", err);
       }
     }
-    matched = cfg.next_node_key ?? null;
+
+    if (!isOffTopicQuestion) {
+      if (cfg.var_key && replyText) {
+        const newVars = { ...run.vars, [cfg.var_key]: replyText };
+        const { error: capErr } = await db
+          .from("flow_runs")
+          .update({
+            vars: newVars,
+            reprompt_count: 0,
+          })
+          .eq("id", run.id);
+        if (!capErr) {
+          run.vars = newVars;
+          run.reprompt_count = 0;
+          await logEvent(db, run.id, "node_entered", currentNode.node_key, {
+            captured_key: cfg.var_key,
+            captured_length: replyText.length,
+          });
+        }
+      }
+      matched = cfg.next_node_key ?? null;
+    }
   }
 
   if (matched) {
@@ -1797,8 +1907,10 @@ async function handleAiFallback(
       : ""
   ).trim();
 
-  const aiConfig = await loadAiConfig(db, run.account_id);
-  if (!aiConfig || !aiConfig.isActive) {
+  const aiConfig = await loadAiConfig(db, run.account_id, {
+    requireActive: false,
+  });
+  if (!aiConfig || !aiConfig.apiKey) {
     await repromptCurrentNode(db, run, currentNode);
     return;
   }
@@ -1812,9 +1924,16 @@ async function handleAiFallback(
 
   const contactVars = await loadContactVars(db, run.contact_id);
 
-  const customPrompt = policy.ai_fallback_prompt?.trim() || aiConfig.systemPrompt;
+  const stepPrompt = extractStepPrompt(currentNode);
+  const stepOptions = extractStepOptions(currentNode);
+  const optionsText =
+    stepOptions.length > 0
+      ? `\nAvailable options at this step:\n${stepOptions.map((o, i) => `${i + 1}. ${o.title}`).join("\n")}`
+      : "";
+
+  const customPrompt = policy.ai_fallback_prompt?.trim() || aiConfig.systemPrompt || "";
   const systemPrompt = buildSystemPrompt({
-    userPrompt: `${customPrompt}\n\nIMPORTANT CONTEXT: The customer is currently in a WhatsApp flow and sent an off-script question instead of selecting one of the options. Answer their question clearly, warmly, and concisely (1-3 sentences) based on the business context. Then briefly invite them to choose from the options to continue.`,
+    userPrompt: `${customPrompt}\n\nIMPORTANT CONTEXT: The customer is currently in an active WhatsApp flow at this step: "${stepPrompt}".${optionsText}\nThe customer asked a question or sent a message instead of completing the step. Answer their question clearly, warmly, and concisely (1-2 sentences) using the provided business knowledge. Then politely remind them to answer the step question to continue.`,
     mode: "auto_reply",
     knowledge,
   });

@@ -1167,4 +1167,273 @@ describe("wait_for_reply on send_message and send_media", () => {
       }),
     );
   });
+
+  it("advances send_buttons node when customer replies with text instead of tapping button", async () => {
+    h.state.activeRuns = [
+      {
+        id: "run-btn-reply",
+        flow_id: "flow-buttons",
+        account_id: "acct-1",
+        user_id: "u-1",
+        contact_id: "ct-1",
+        conversation_id: "cv-1",
+        current_node_key: "step_area",
+        status: "active",
+        vars: {},
+        reprompt_count: 0,
+      },
+    ];
+
+    h.state.flows = [
+      {
+        id: "flow-buttons",
+        account_id: "acct-1",
+        name: "Qualification Flow",
+        status: "active",
+        entry_node_id: "step_area",
+      },
+    ];
+
+    h.state.nodes = [
+      {
+        id: "n-btn",
+        flow_id: "flow-buttons",
+        node_key: "step_area",
+        node_type: "send_buttons",
+        config: {
+          text: "Which area would you like assessed?",
+          buttons: [
+            { reply_id: "face", title: "Face or Neck", next_node_key: "end_face" },
+            { reply_id: "breast", title: "Breast", next_node_key: "end_breast" },
+            { reply_id: "body", title: "Body", next_node_key: "end_body" },
+          ],
+        },
+      },
+      {
+        id: "n-end-body",
+        flow_id: "flow-buttons",
+        node_key: "end_body",
+        node_type: "end",
+        config: {},
+      },
+    ];
+
+    // Customer types "3" or "Body"
+    const replyResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("Body"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(replyResult).toMatchObject({ consumed: true, outcome: "completed" });
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({ status: "completed" }),
+      }),
+    );
+  });
+
+  it("advances send_buttons node when customer replies with semantic intent (e.g. 'Tummy tuck' -> 'Body')", async () => {
+    h.state.activeRuns = [
+      {
+        id: "run-semantic-reply",
+        flow_id: "flow-buttons",
+        account_id: "acct-1",
+        user_id: "u-1",
+        contact_id: "ct-1",
+        conversation_id: "cv-1",
+        current_node_key: "step_area",
+        status: "active",
+        vars: {},
+        reprompt_count: 0,
+      },
+    ];
+
+    h.state.flows = [
+      {
+        id: "flow-buttons",
+        account_id: "acct-1",
+        name: "Qualification Flow",
+        status: "active",
+        entry_node_id: "step_area",
+      },
+    ];
+
+    h.state.nodes = [
+      {
+        id: "n-btn",
+        flow_id: "flow-buttons",
+        node_key: "step_area",
+        node_type: "send_buttons",
+        config: {
+          text: "Which area would you like assessed?",
+          buttons: [
+            { reply_id: "face", title: "Face or Neck", next_node_key: "end_face" },
+            { reply_id: "breast", title: "Breast", next_node_key: "end_breast" },
+            { reply_id: "body", title: "Body", next_node_key: "end_body" },
+          ],
+        },
+      },
+      {
+        id: "n-end-body",
+        flow_id: "flow-buttons",
+        node_key: "end_body",
+        node_type: "end",
+        config: {},
+      },
+    ];
+
+    // Mock AI config to supply an active apiKey
+    const aiConfigModule = await import("@/lib/ai/config");
+    vi.spyOn(aiConfigModule, "loadAiConfig").mockResolvedValueOnce({
+      provider: "openai",
+      model: "gpt-4o-mini",
+      apiKey: "sk-test",
+      baseUrl: null,
+      systemPrompt: null,
+      isActive: true,
+      autoReplyEnabled: true,
+      autoReplyMaxPerConversation: 10,
+      handoffAgentId: null,
+      embeddingsApiKey: null,
+    });
+
+    // Mock semantic match to simulate AI mapping "Tummy tuck" to Option 3 "Body"
+    const semanticModule = await import("./semantic-match");
+    vi.spyOn(semanticModule, "evaluateSemanticStepMatch").mockResolvedValueOnce({
+      is_relevant_answer: true,
+      matched_option: { id: "body", title: "Body", next_node_key: "end_body" },
+      inferred_value: "Body (Tummy tuck)",
+      is_question_or_inquiry: false,
+      reason: "Tummy tuck is a body procedure",
+    });
+
+    const replyResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("Tummy tuck"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(replyResult).toMatchObject({ consumed: true, outcome: "completed" });
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({ status: "completed" }),
+      }),
+    );
+  });
+
+  it("handles inquiry questions via Knowledge Base fallback when customer asks an off-topic question", async () => {
+    h.state.activeRuns = [
+      {
+        id: "run-inquiry-reply",
+        flow_id: "flow-buttons",
+        account_id: "acct-1",
+        user_id: "u-1",
+        contact_id: "ct-1",
+        conversation_id: "cv-1",
+        current_node_key: "step_area",
+        status: "active",
+        vars: {},
+        reprompt_count: 0,
+      },
+    ];
+
+    h.state.flows = [
+      {
+        id: "flow-buttons",
+        account_id: "acct-1",
+        name: "Qualification Flow",
+        status: "active",
+        entry_node_id: "step_area",
+        fallback_policy: {
+          on_unknown_reply: "ai_fallback",
+          max_reprompts: 2,
+          ai_fallback_resend_prompt: true,
+        },
+      },
+    ];
+
+    h.state.nodes = [
+      {
+        id: "n-btn",
+        flow_id: "flow-buttons",
+        node_key: "step_area",
+        node_type: "send_buttons",
+        config: {
+          text: "Which area would you like assessed?",
+          buttons: [
+            { reply_id: "face", title: "Face or Neck", next_node_key: "end_face" },
+            { reply_id: "breast", title: "Breast", next_node_key: "end_breast" },
+            { reply_id: "body", title: "Body", next_node_key: "end_body" },
+          ],
+        },
+      },
+    ];
+
+    const aiConfigModule = await import("@/lib/ai/config");
+    vi.spyOn(aiConfigModule, "loadAiConfig").mockResolvedValue({
+      provider: "openai",
+      model: "gpt-4o-mini",
+      apiKey: "sk-test",
+      baseUrl: null,
+      systemPrompt: null,
+      isActive: true,
+      autoReplyEnabled: true,
+      autoReplyMaxPerConversation: 10,
+      handoffAgentId: null,
+      embeddingsApiKey: null,
+    });
+
+    const semanticModule = await import("./semantic-match");
+    vi.spyOn(semanticModule, "evaluateSemanticStepMatch").mockResolvedValueOnce({
+      is_relevant_answer: false,
+      matched_option: null,
+      is_question_or_inquiry: true,
+      reason: "Customer asked about pricing rather than selecting an area.",
+    });
+
+    const knowledgeModule = await import("@/lib/ai/knowledge");
+    vi.spyOn(knowledgeModule, "retrieveKnowledge").mockResolvedValueOnce([
+      "Tummy tuck pricing starts at £2,500 including hospital stay and transfer.",
+    ]);
+
+    const generateModule = await import("@/lib/ai/generate");
+    vi.spyOn(generateModule, "generateReply").mockResolvedValueOnce({
+      text: "Our tummy tuck surgery starts from £2,500. Which area would you like our surgeon to assess?",
+      handoff: false,
+      usage: null,
+    });
+
+    const replyResult = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: text("How much does a tummy tuck cost?"),
+      isFirstInboundMessage: false,
+    });
+
+    expect(replyResult).toMatchObject({ consumed: true, outcome: "fallback_fired" });
+    // AI generated answer was sent
+    expect(engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("£2,500"),
+      }),
+    );
+    // Reprompt was incremented
+    expect(h.state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "flow_runs",
+        row: expect.objectContaining({ reprompt_count: 1 }),
+      }),
+    );
+  });
 });
