@@ -2,6 +2,8 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { resolveFallbackPolicy } from '@/lib/flows/fallback'
+import { engineSendText } from '@/lib/flows/meta-send'
+import { interpolateVars, loadContactVars } from '@/lib/flows/engine'
 
 /**
  * Sweep abandoned active flow runs.
@@ -54,7 +56,7 @@ export async function GET(request: Request) {
   const { data: runs, error } = await admin
     .from('flow_runs')
     .select(
-      'id, flow_id, user_id, contact_id, last_advanced_at, flows ( fallback_policy )',
+      'id, flow_id, account_id, user_id, contact_id, conversation_id, last_prompt_message_id, vars, current_node_key, last_advanced_at, flows ( fallback_policy )',
     )
     .eq('status', 'active')
 
@@ -67,8 +69,13 @@ export async function GET(request: Request) {
   type Row = {
     id: string
     flow_id: string
+    account_id: string
     user_id: string
     contact_id: string | null
+    conversation_id: string | null
+    last_prompt_message_id: string | null
+    vars: Record<string, unknown> | null
+    current_node_key: string | null
     last_advanced_at: string
     flows: { fallback_policy: unknown } | { fallback_policy: unknown }[] | null
   }
@@ -79,15 +86,80 @@ export async function GET(request: Request) {
     const policy = resolveFallbackPolicy(flowsField?.fallback_policy ?? null)
     const lastAdvanced = new Date(r.last_advanced_at)
     const ageHours = (now.getTime() - lastAdvanced.getTime()) / (1000 * 60 * 60)
+
+    const runVars = (r.vars ?? {}) as Record<string, unknown>
+    const followupsSent = typeof runVars._followup_count === 'number' ? runVars._followup_count : 0
+    const followupsList = policy.followup_enabled && Array.isArray(policy.followups)
+      ? policy.followups.filter((f) => f && f.message?.trim())
+      : []
+
+    // If follow-ups are configured and not yet exhausted:
+    if (followupsList.length > 0 && followupsSent < followupsList.length) {
+      const nextFollowup = followupsList[followupsSent]
+      if (nextFollowup && ageHours >= nextFollowup.delay_hours) {
+        if (r.conversation_id && r.contact_id) {
+          try {
+            const contactVars = await loadContactVars(admin, r.contact_id)
+            const text = interpolateVars(nextFollowup.message, runVars, contactVars)
+
+            await engineSendText({
+              accountId: r.account_id,
+              userId: r.user_id,
+              conversationId: r.conversation_id,
+              contactId: r.contact_id,
+              text,
+            })
+
+            const updatedVars = {
+              ...runVars,
+              _followup_count: followupsSent + 1,
+              _last_followup_at: now.toISOString(),
+            }
+
+            await admin
+              .from('flow_runs')
+              .update({ vars: updatedVars })
+              .eq('id', r.id)
+              .eq('status', 'active')
+
+            await admin.from('flow_run_events').insert({
+              flow_run_id: r.id,
+              event_type: 'followup_sent',
+              node_key: r.current_node_key,
+              payload: {
+                followup_number: followupsSent + 1,
+                delay_hours: nextFollowup.delay_hours,
+                text,
+              },
+            })
+
+            swept += 1
+            continue
+          } catch (fErr) {
+            console.error('[flows-cron] follow-up send failed:', fErr)
+          }
+        }
+      } else {
+        // Still within follow-up delay window, don't time out yet
+        continue
+      }
+    }
+
     if (ageHours < policy.on_timeout_hours) continue
 
-    // Mark timed_out — guarded by the precondition `status='active'`
-    // so concurrent advance from a late inbound doesn't overwrite a
-    // legitimate update.
+    const endStatus = policy.on_exhaust === 'handoff' ? 'handed_off' : 'timed_out'
+    if (endStatus === 'handed_off' && r.conversation_id) {
+      await admin
+        .from('conversations')
+        .update({ status: 'pending', updated_at: now.toISOString() })
+        .eq('id', r.conversation_id)
+    }
+
+    // Mark run finished — guarded by the precondition `status='active'`
     const { data: updated } = await admin
       .from('flow_runs')
       .update({
-        status: 'timed_out',
+        status: endStatus,
         ended_at: now.toISOString(),
         end_reason: 'stale_sweep',
       })
@@ -98,10 +170,12 @@ export async function GET(request: Request) {
     if (Array.isArray(updated) && updated.length > 0) {
       await admin.from('flow_run_events').insert({
         flow_run_id: r.id,
-        event_type: 'timeout',
+        event_type: endStatus === 'handed_off' ? 'handoff' : 'timeout',
+        node_key: r.current_node_key,
         payload: {
           age_hours: Math.round(ageHours * 10) / 10,
           policy_hours: policy.on_timeout_hours,
+          reason: 'stale_sweep',
         },
       })
       swept += 1

@@ -111,6 +111,23 @@ describe("decideFallback", () => {
     });
   });
 
+  it("answers with ai_fallback up to max_reprompts", () => {
+    const policy: FlowFallbackPolicy = {
+      ...POLICY_REPROMPT_2_HANDOFF,
+      on_unknown_reply: "ai_fallback",
+    };
+    expect(decideFallback({ policy, reprompt_count: 1 })).toEqual({
+      type: "ai_fallback",
+    });
+    expect(decideFallback({ policy, reprompt_count: 2 })).toEqual({
+      type: "ai_fallback",
+    });
+    // count 3 with max 2 exhausts
+    expect(decideFallback({ policy, reprompt_count: 3 })).toEqual({
+      type: "handoff",
+    });
+  });
+
   it("with max_reprompts=0, the first unknown reply exhausts", () => {
     const policy: FlowFallbackPolicy = {
       ...POLICY_REPROMPT_2_HANDOFF,

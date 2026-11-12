@@ -22,6 +22,7 @@
  * /flows/[id]/runs) — those don't belong in the hook.
  */
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
@@ -32,6 +33,7 @@ import {
   PauseCircle,
   PlayCircle,
   Save,
+  Sparkles,
   Trash2,
   Workflow,
 } from "lucide-react";
@@ -42,10 +44,12 @@ import {
   useFlowEditor,
   type BuilderState,
 } from "./flow-editor-state";
+import { FlowSettingsDialog } from "./flow-settings-dialog";
 
 export function EditorHeader() {
   const router = useRouter();
   const t = useTranslations("Flows.header");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const {
     flow,
     state,
@@ -95,8 +99,17 @@ export function EditorHeader() {
           </span>
         )}
 
-        {/* ---- right: runs · delete · activate · save ---- */}
+        {/* ---- right: settings · runs · delete · activate · save ---- */}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSettingsOpen(true)}
+            className="gap-1.5 border-primary/30 hover:border-primary/50 text-foreground"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            {t("aiSettings")}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -169,6 +182,11 @@ export function EditorHeader() {
         placeholder={t("descriptionPlaceholder")}
         aria-label={t("descriptionLabel")}
         className="w-full max-w-[78ch] rounded-md border border-transparent bg-transparent px-2 py-1 text-[13px] text-muted-foreground outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-muted/50 focus:border-primary focus:bg-transparent focus:text-foreground"
+      />
+
+      <FlowSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
       />
     </div>
   );

@@ -67,6 +67,7 @@ import {
   type StartNodeConfig,
   type KeywordTriggerConfig,
   type FlowTriggerType,
+  type FlowFallbackPolicy,
 } from "./types";
 
 // ============================================================
@@ -1683,59 +1684,25 @@ async function handleReplyForActiveRun(
     // Don't consume — let automations have a shot at it.
     return { consumed: false, flow_run_id: run.id, outcome: "no_match" };
   }
-  if (action.type === "reprompt") {
-    // Re-send the same prompt. Same node, no current_node_key change.
-    // The interactive helpers interpolate run.vars themselves, so a
-    // reprompt renders the same text the original prompt did. A send
-    // failure here is logged but does not end the run — the customer
-    // still has the original prompt on screen and can retry.
+  if (action.type === "ai_fallback") {
     try {
-      const contactVars = await loadContactVars(db, run.contact_id);
-      if (currentNode.node_type === "send_buttons") {
-        await sendButtonsAndSuspend(db, run, currentNode, contactVars);
-      } else if (currentNode.node_type === "send_list") {
-        await sendListAndSuspend(db, run, currentNode, contactVars);
-      } else if (currentNode.node_type === "collect_input") {
-        // Customer typed something we couldn't accept (empty after trim,
-        // or var_key missing — rare). Re-send the prompt so they try again.
-        const cfg = currentNode.config as unknown as CollectInputNodeConfig;
-        await engineSendText({
-          accountId: run.account_id,
-          userId: run.user_id,
-          conversationId: run.conversation_id!,
-          contactId: run.contact_id!,
-          text: interpolateVars(cfg.prompt_text, run.vars, contactVars),
-        });
-      } else if (
-        currentNode.node_type === "send_message" &&
-        (currentNode.config as unknown as SendMessageNodeConfig).wait_for_reply
-      ) {
-        const cfg = currentNode.config as unknown as SendMessageNodeConfig;
-        await engineSendText({
-          accountId: run.account_id,
-          userId: run.user_id,
-          conversationId: run.conversation_id!,
-          contactId: run.contact_id!,
-          text: interpolateVars(cfg.text, run.vars, contactVars),
-        });
-      } else if (
-        currentNode.node_type === "send_media" &&
-        (currentNode.config as unknown as SendMediaNodeConfig).wait_for_reply
-      ) {
-        const cfg = currentNode.config as unknown as SendMediaNodeConfig;
-        await engineSendMedia({
-          accountId: run.account_id,
-          userId: run.user_id,
-          conversationId: run.conversation_id!,
-          contactId: run.contact_id!,
-          kind: cfg.media_type,
-          link: cfg.media_url,
-          caption: cfg.caption
-            ? interpolateVars(cfg.caption, run.vars, contactVars)
-            : undefined,
-          filename: cfg.filename,
-        });
+      await handleAiFallback(db, run, currentNode, policy, message, newReprompts);
+    } catch (err) {
+      await logEvent(db, run.id, "error", currentNode.node_key, {
+        reason: "ai_fallback_failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      try {
+        await repromptCurrentNode(db, run, currentNode);
+      } catch (repromptErr) {
+        console.error("[flows] fallback reprompt failed:", repromptErr);
       }
+    }
+    return { consumed: true, flow_run_id: run.id, outcome: "fallback_fired" };
+  }
+  if (action.type === "reprompt") {
+    try {
+      await repromptCurrentNode(db, run, currentNode);
     } catch (err) {
       await logEvent(db, run.id, "error", currentNode.node_key, {
         reason: "reprompt_send_failed",
@@ -1760,6 +1727,142 @@ async function handleReplyForActiveRun(
   // action.type === 'end'
   await endRun(db, run.id, "completed", "fallback_exhausted_end");
   return { consumed: true, flow_run_id: run.id, outcome: "completed" };
+}
+
+async function repromptCurrentNode(
+  db: AdminClient,
+  run: FlowRunRow,
+  currentNode: FlowNodeRow,
+  cachedContactVars?: Record<string, string>,
+): Promise<void> {
+  const contactVars = cachedContactVars ?? (await loadContactVars(db, run.contact_id));
+  if (currentNode.node_type === "send_buttons") {
+    await sendButtonsAndSuspend(db, run, currentNode, contactVars);
+  } else if (currentNode.node_type === "send_list") {
+    await sendListAndSuspend(db, run, currentNode, contactVars);
+  } else if (currentNode.node_type === "collect_input") {
+    const cfg = currentNode.config as unknown as CollectInputNodeConfig;
+    await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: interpolateVars(cfg.prompt_text, run.vars, contactVars),
+    });
+  } else if (
+    currentNode.node_type === "send_message" &&
+    (currentNode.config as unknown as SendMessageNodeConfig).wait_for_reply
+  ) {
+    const cfg = currentNode.config as unknown as SendMessageNodeConfig;
+    await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: interpolateVars(cfg.text, run.vars, contactVars),
+    });
+  } else if (
+    currentNode.node_type === "send_media" &&
+    (currentNode.config as unknown as SendMediaNodeConfig).wait_for_reply
+  ) {
+    const cfg = currentNode.config as unknown as SendMediaNodeConfig;
+    await engineSendMedia({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      kind: cfg.media_type,
+      link: cfg.media_url,
+      caption: cfg.caption
+        ? interpolateVars(cfg.caption, run.vars, contactVars)
+        : undefined,
+      filename: cfg.filename,
+    });
+  }
+}
+
+async function handleAiFallback(
+  db: AdminClient,
+  run: FlowRunRow,
+  currentNode: FlowNodeRow,
+  policy: FlowFallbackPolicy,
+  message: ParsedInbound,
+  newReprompts: number,
+): Promise<void> {
+  const query = (
+    message.kind === "text"
+      ? message.text
+      : message.kind === "interactive_reply"
+      ? message.reply_title
+      : ""
+  ).trim();
+
+  const aiConfig = await loadAiConfig(db, run.account_id);
+  if (!aiConfig || !aiConfig.isActive) {
+    await repromptCurrentNode(db, run, currentNode);
+    return;
+  }
+
+  const knowledge = await retrieveKnowledge(
+    db,
+    run.account_id,
+    aiConfig,
+    query || "Customer question",
+  );
+
+  const contactVars = await loadContactVars(db, run.contact_id);
+
+  const customPrompt = policy.ai_fallback_prompt?.trim() || aiConfig.systemPrompt;
+  const systemPrompt = buildSystemPrompt({
+    userPrompt: `${customPrompt}\n\nIMPORTANT CONTEXT: The customer is currently in a WhatsApp flow and sent an off-script question instead of selecting one of the options. Answer their question clearly, warmly, and concisely (1-3 sentences) based on the business context. Then briefly invite them to choose from the options to continue.`,
+    mode: "auto_reply",
+    knowledge,
+  });
+
+  const messages = run.conversation_id
+    ? await buildConversationContext(db, run.conversation_id)
+    : [];
+
+  if (query && (messages.length === 0 || messages[messages.length - 1].content !== query)) {
+    messages.push({ role: "user", content: query });
+  }
+
+  const { text, usage } = await generateReply({
+    config: aiConfig,
+    systemPrompt,
+    messages,
+  });
+
+  if (text?.trim()) {
+    await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: text.trim(),
+    });
+
+    if (usage) {
+      await logAiUsage(db, {
+        accountId: run.account_id,
+        conversationId: run.conversation_id!,
+        provider: aiConfig.provider,
+        model: aiConfig.model,
+        mode: "auto_reply",
+        usage,
+      });
+    }
+
+    await logEvent(db, run.id, "message_sent", currentNode.node_key, {
+      text: text.trim(),
+      is_ai_fallback: true,
+      reprompt_count: newReprompts,
+    });
+  }
+
+  if (policy.ai_fallback_resend_prompt !== false) {
+    await repromptCurrentNode(db, run, currentNode, contactVars);
+  }
 }
 
 async function startNewRun(

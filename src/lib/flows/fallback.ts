@@ -19,6 +19,8 @@ import {
 export type FallbackAction =
   /** Re-send the same prompt and wait again. */
   | { type: "reprompt" }
+  /** Answer with AI grounded in KB and bridge back to the flow. */
+  | { type: "ai_fallback" }
   /** End the run with status='handed_off', flip conversation to pending. */
   | { type: "handoff" }
   /** End the run with status='completed' (the `end` exhaust option). */
@@ -27,10 +29,7 @@ export type FallbackAction =
   | { type: "ignore" };
 
 /**
- * Merge a partial / null fallback_policy from the DB with the v1
- * defaults. The DB column defaults the *whole* JSONB to the right
- * shape, but rows authored before this default landed, or rows
- * manually edited to a subset, would otherwise crash the runner.
+ * Merge a partial / null fallback_policy from the DB with the defaults.
  */
 export function resolveFallbackPolicy(
   raw: unknown,
@@ -41,7 +40,8 @@ export function resolveFallbackPolicy(
     on_unknown_reply:
       r.on_unknown_reply === "handoff" ||
       r.on_unknown_reply === "ignore" ||
-      r.on_unknown_reply === "reprompt"
+      r.on_unknown_reply === "reprompt" ||
+      r.on_unknown_reply === "ai_fallback"
         ? r.on_unknown_reply
         : DEFAULT_FALLBACK_POLICY.on_unknown_reply,
     max_reprompts:
@@ -56,30 +56,46 @@ export function resolveFallbackPolicy(
       r.on_exhaust === "handoff" || r.on_exhaust === "end"
         ? r.on_exhaust
         : DEFAULT_FALLBACK_POLICY.on_exhaust,
+    ai_fallback_prompt:
+      typeof r.ai_fallback_prompt === "string" ? r.ai_fallback_prompt : undefined,
+    ai_fallback_resend_prompt: r.ai_fallback_resend_prompt !== false,
+    followup_enabled: Boolean(r.followup_enabled),
+    followups: Array.isArray(r.followups)
+      ? r.followups
+          .filter((f) => f && typeof f === "object")
+          .map((f: any) => ({
+            delay_hours:
+              typeof f.delay_hours === "number" && f.delay_hours > 0
+                ? f.delay_hours
+                : 2,
+            message: typeof f.message === "string" ? f.message : "",
+          }))
+      : DEFAULT_FALLBACK_POLICY.followups,
   };
 }
 
 /**
  * Decide the action when the customer's reply doesn't match a button
- * id on the current node. The engine increments `reprompt_count` and
- * persists, then calls this with the NEW count.
- *
- * - `on_unknown_reply: 'ignore'` → always ignore. Useful for a flow
- *   that should keep running even if the customer types something
- *   off-script in between taps (rare; default is reprompt).
- * - `on_unknown_reply: 'handoff'` → immediately escalate. No retries.
- * - `on_unknown_reply: 'reprompt'` → re-send the prompt up to
- *   `max_reprompts` times, then apply `on_exhaust`.
+ * id or expected input on the current node.
  */
 export function decideFallback(args: {
   policy: FlowFallbackPolicy;
-  /** Reprompt count AFTER incrementing (so 1 = first reprompt). */
+  /** Reprompt count AFTER incrementing (so 1 = first reprompt / AI answer). */
   reprompt_count: number;
 }): FallbackAction {
   const { policy, reprompt_count } = args;
 
   if (policy.on_unknown_reply === "ignore") return { type: "ignore" };
   if (policy.on_unknown_reply === "handoff") return { type: "handoff" };
+
+  if (policy.on_unknown_reply === "ai_fallback") {
+    if (reprompt_count <= policy.max_reprompts) {
+      return { type: "ai_fallback" };
+    }
+    return policy.on_exhaust === "end"
+      ? { type: "end" }
+      : { type: "handoff" };
+  }
 
   // 'reprompt' — guarded by max_reprompts.
   if (reprompt_count <= policy.max_reprompts) {

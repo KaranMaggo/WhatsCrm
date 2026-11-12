@@ -377,22 +377,51 @@ export interface FlowRunRow {
 // Fallback policy (matches flows.fallback_policy JSONB)
 // ============================================================
 
+export interface FlowFollowupConfig {
+  /** Delay in hours after last message before sending this follow-up */
+  delay_hours: number;
+  /** Message text sent as follow-up reminder */
+  message: string;
+}
+
 export interface FlowFallbackPolicy {
   /** What to do when the customer reply doesn't match any option. */
-  on_unknown_reply: "reprompt" | "handoff" | "ignore";
-  /** Max reprompts before applying `on_exhaust`. */
+  on_unknown_reply: "reprompt" | "handoff" | "ignore" | "ai_fallback";
+  /** Max reprompts or AI answers before applying `on_exhaust`. */
   max_reprompts: number;
-  /** Stale-run sweep cutoff. */
+  /** Stale-run sweep cutoff in hours. */
   on_timeout_hours: number;
   /** What to do once max_reprompts has been hit. */
   on_exhaust: "handoff" | "end";
+
+  /** Optional custom prompt / tone override for AI fallback responses. */
+  ai_fallback_prompt?: string;
+  /** Whether to re-send the interactive buttons / options after AI answers. Default true. */
+  ai_fallback_resend_prompt?: boolean;
+
+  /** Whether automated no-answer follow-ups are enabled. */
+  followup_enabled?: boolean;
+  /** List of automated follow-up steps (1-2 follow-ups). */
+  followups?: FlowFollowupConfig[];
 }
 
 export const DEFAULT_FALLBACK_POLICY: FlowFallbackPolicy = {
-  on_unknown_reply: "reprompt",
+  on_unknown_reply: "ai_fallback",
   max_reprompts: 2,
   on_timeout_hours: 24,
   on_exhaust: "handoff",
+  ai_fallback_resend_prompt: true,
+  followup_enabled: false,
+  followups: [
+    {
+      delay_hours: 2,
+      message: "Hi {{contact.name}}, just following up to see if you had any questions about the options above?",
+    },
+    {
+      delay_hours: 24,
+      message: "Let us know if you'd still like help with this, or feel free to message us whenever you're ready!",
+    },
+  ],
 };
 
 // ============================================================
