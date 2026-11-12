@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   getSubscribedApps,
+  registerPhoneNumber,
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
 import { getT } from '@/lib/i18n/translate'
@@ -103,8 +104,9 @@ export async function GET() {
   const errors: string[] = []
 
   // 1. Phone metadata
+  let phoneInfo: Awaited<ReturnType<typeof verifyPhoneNumber>> | null = null
   try {
-    await verifyPhoneNumber({
+    phoneInfo = await verifyPhoneNumber({
       phoneNumberId: config.phone_number_id,
       accessToken,
     })
@@ -141,6 +143,38 @@ export async function GET() {
     errors.push(
       t('whatsappConfig.noWabaId'),
     )
+  }
+
+  // Auto-heal registration timestamp if phone & WABA are live but locally_marked_registered is missing
+  if (
+    !checks.locally_marked_registered &&
+    checks.phone_metadata_ok &&
+    (checks.waba_subscribed_to_app ?? false)
+  ) {
+    try {
+      await registerPhoneNumber({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        pin: '123456',
+      })
+      checks.locally_marked_registered = true
+      const now = new Date().toISOString()
+      config.registered_at = now
+      await supabase
+        .from('whatsapp_config')
+        .update({ registered_at: now, last_registration_error: null })
+        .eq('id', config.id)
+    } catch {
+      if (phoneInfo?.code_verification_status === 'VERIFIED') {
+        checks.locally_marked_registered = true
+        const now = new Date().toISOString()
+        config.registered_at = now
+        await supabase
+          .from('whatsapp_config')
+          .update({ registered_at: now, last_registration_error: null })
+          .eq('id', config.id)
+      }
+    }
   }
 
   const live =

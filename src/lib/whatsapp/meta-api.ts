@@ -26,6 +26,7 @@ export interface MetaPhoneInfo {
   display_phone_number: string
   verified_name?: string
   quality_rating?: string
+  code_verification_status?: string
 }
 
 interface MetaErrorResponse {
