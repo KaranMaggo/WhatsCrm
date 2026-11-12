@@ -151,7 +151,7 @@ export function FlowEditorShell({ initialFlow, initialNodes }: Props) {
         </div>
 
         {/* ---- validation / activate-readiness bar ---- */}
-        <div className="px-6 pb-5 pt-3">
+        <div className="px-6 pb-3 pt-2">
           <ValidationPanel />
         </div>
       </div>

@@ -17,7 +17,8 @@
  * concept). User can switch to List to address them.
  */
 
-import { CircleAlert, CircleCheck } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, CircleAlert, CircleCheck } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import type { ValidationIssue } from "@/lib/flows/validate";
@@ -26,13 +27,14 @@ import { useFlowEditor } from "./flow-editor-state";
 export function ValidationPanel() {
   const { issues, requestFlash } = useFlowEditor();
   const t = useTranslations("Flows.validation");
+  const [collapsed, setCollapsed] = useState(false);
 
   if (issues.length === 0) {
     // Slate-950 base + emerald accents so the panel stays readable when
     // sticky-positioned over scrolled-behind node cards (a translucent
     // bg-emerald-500/10 would bleed through ugly).
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-emerald-600/50 bg-background p-3 text-sm font-medium text-emerald-300">
+      <div className="flex items-center gap-2 rounded-lg border border-emerald-600/50 bg-background px-3 py-2 text-xs font-medium text-emerald-300">
         <CircleCheck className="h-4 w-4 shrink-0" />
         {t("noIssues")}
       </div>
@@ -43,23 +45,47 @@ export function ValidationPanel() {
   return (
     <div
       className={cn(
-        "rounded-lg border bg-background p-3",
+        "rounded-lg border bg-background/95 backdrop-blur shadow-sm transition-all",
         errors.length > 0 ? "border-red-500/40" : "border-amber-500/40",
       )}
     >
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        {errors.length > 0 ? (
-          <CircleAlert className="h-4 w-4 text-red-400" />
-        ) : (
-          <CircleAlert className="h-4 w-4 text-amber-400" />
-        )}
-        {t("summary", { errorCount: errors.length, warningCount: warnings.length })}
-      </div>
-      <div className="flex flex-col gap-1">
-        {issues.map((i, ix) => (
-          <IssueLine key={ix} issue={i} onJump={requestFlash} t={t} />
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs transition-colors hover:bg-muted/40"
+        aria-expanded={!collapsed}
+      >
+        <div className="flex items-center gap-2 font-medium">
+          {errors.length > 0 ? (
+            <CircleAlert className="h-4 w-4 text-red-400 shrink-0" />
+          ) : (
+            <CircleAlert className="h-4 w-4 text-amber-400 shrink-0" />
+          )}
+          <span className="text-foreground">
+            {t("summary", { errorCount: errors.length, warningCount: warnings.length })}
+          </span>
+          <span className="text-[11px] text-muted-foreground font-normal">
+            {collapsed ? "(click to view)" : "(click to minimize)"}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 text-muted-foreground">
+          {collapsed ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
+          )}
+        </div>
+      </button>
+
+      {!collapsed && (
+        <div className="border-t border-border/50 px-2 py-1.5">
+          <div className="max-h-40 overflow-y-auto space-y-0.5 pr-1">
+            {issues.map((i, ix) => (
+              <IssueLine key={ix} issue={i} onJump={requestFlash} t={t} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
