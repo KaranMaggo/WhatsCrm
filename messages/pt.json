@@ -2064,10 +2064,6 @@
       "cancel": "Cancelar",
       "saveDoc": "Salvar documento",
       "addDoc": "Adicionar documento",
-      "uploadPdf": "Enviar PDF / Documento",
-      "uploadingPdf": "Extraindo texto...",
-      "pdfUploadSuccess": "Texto extraído de {filename} ({pages} página(s)). Revise e salve o documento.",
-      "importPdf": "Enviar arquivo para preencher conteúdo",
       "reindex": "Reindexar",
       "reindexTooltip": "Gerar novamente os embeddings de todos os documentos (ex.: após adicionar uma chave de embeddings)",
       "editDoc": "Editar",
@@ -2690,14 +2686,7 @@
         "titleContentRequired": "Título e conteúdo são obrigatórios",
         "saveDocFailed": "Falha ao salvar o documento",
         "savedIndexFailed": "Salvo, mas a indexação semântica falhou ({message}). A busca por palavras-chave continua funcionando; use Reindexar para tentar novamente.",
-        "savedKeywordOnly": "Salvo apenas com busca por palavras-chave — não foi possível descriptografar sua chave de embeddings (verifique a ENCRYPTION_KEY e informe a chave novamente).",
-        "invalidFormData": "Dados de formulário inválidos.",
-        "noFileProvided": "Nenhum arquivo fornecido.",
-        "fileTooLarge": "O arquivo é muito grande (máximo de 20 MB).",
-        "pdfParseFailed": "Falha ao analisar o documento PDF.",
-        "textReadFailed": "Falha ao ler o arquivo de texto.",
-        "unsupportedFileType": "Formato de arquivo não suportado. Envie um arquivo PDF, TXT, MD ou CSV.",
-        "noReadableText": "Nenhum texto legível encontrado neste arquivo. Se for um documento digitalizado, cole o texto diretamente."
+        "savedKeywordOnly": "Salvo apenas com busca por palavras-chave — não foi possível descriptografar sua chave de embeddings (verifique a ENCRYPTION_KEY e informe a chave novamente)."
       }
     },
     "automations": {

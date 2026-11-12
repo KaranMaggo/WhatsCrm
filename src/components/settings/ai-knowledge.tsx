@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, Pencil, RefreshCw, BookOpen, Upload } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, RefreshCw, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,9 +41,6 @@ export function AiKnowledgeCard({
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [reindexing, setReindexing] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const editorFileInputRef = useRef<HTMLInputElement>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
   const t = useTranslations('Settings.aiKnowledge');
 
@@ -93,49 +90,6 @@ export function AiKnowledgeCard({
     setEditing(null);
     setTitle('');
     setContent('');
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch('/api/ai/knowledge/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? t('loadFailed'));
-        return;
-      }
-
-      setEditing((prev) => (prev && prev !== 'new' ? prev : 'new'));
-      setTitle((prev) => {
-        if (!prev.trim() || editing === null || editing === 'new') {
-          return data.title || file.name.replace(/\.[^/.]+$/, '');
-        }
-        return prev;
-      });
-      setContent(data.content || '');
-
-      toast.success(
-        t('pdfUploadSuccess', {
-          filename: file.name,
-          pages: data.pages || 1,
-        })
-      );
-    } catch {
-      toast.error(t('loadFailed'));
-    } finally {
-      setUploading(false);
-    }
   };
 
   const save = async () => {
@@ -278,45 +232,21 @@ export function AiKnowledgeCard({
                   />
                 </div>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="kb-content">{t('editDocContent')}</Label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs text-muted-foreground hover:text-foreground"
-                      onClick={() => editorFileInputRef.current?.click()}
-                      disabled={uploading || saving}
-                    >
-                      {uploading ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Upload className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {uploading ? t('uploadingPdf') : t('importPdf')}
-                    </Button>
-                    <input
-                      ref={editorFileInputRef}
-                      type="file"
-                      accept=".pdf,.txt,.md,.markdown,.csv,.json"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                    />
-                  </div>
+                  <Label htmlFor="kb-content">{t('editDocContent')}</Label>
                   <Textarea
                     id="kb-content"
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
                     placeholder={t('editDocContentPlaceholder')}
                     rows={8}
-                    disabled={saving || uploading}
+                    disabled={saving}
                   />
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={cancelEdit} disabled={saving || uploading}>
+                  <Button variant="ghost" onClick={cancelEdit} disabled={saving}>
                     {t('cancel')}
                   </Button>
-                  <Button onClick={save} disabled={saving || uploading}>
+                  <Button onClick={save} disabled={saving}>
                     {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {t('saveDoc')}
                   </Button>
@@ -324,38 +254,16 @@ export function AiKnowledgeCard({
               </div>
             ) : (
               canEdit && (
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={openNew}>
-                      <Plus className="mr-2 h-4 w-4" /> {t('addDoc')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploading}
-                    >
-                      {uploading ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="mr-2 h-4 w-4" />
-                      )}
-                      {uploading ? t('uploadingPdf') : t('uploadPdf')}
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf,.txt,.md,.markdown,.csv,.json"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                    />
-                  </div>
+                <div className="flex items-center justify-between">
+                  <Button variant="outline" size="sm" onClick={openNew}>
+                    <Plus className="mr-2 h-4 w-4" /> {t('addDoc')}
+                  </Button>
                   {hasEmbeddingsKey && docs.length > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={reindex}
-                      disabled={reindexing || uploading}
+                      disabled={reindexing}
                       title={t('reindexTooltip')}
                     >
                       {reindexing ? (

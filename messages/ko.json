@@ -2064,10 +2064,6 @@
       "cancel": "취소",
       "saveDoc": "문서 저장",
       "addDoc": "문서 추가",
-      "uploadPdf": "PDF / 문서 업로드",
-      "uploadingPdf": "텍스트 추출 중...",
-      "pdfUploadSuccess": "{filename}에서 텍스트를 추출했습니다({pages}페이지). 검토 후 문서를 저장하세요.",
-      "importPdf": "파일을 업로드하여 내용 채우기",
       "reindex": "재색인",
       "reindexTooltip": "모든 문서를 다시 임베딩합니다 (예: 임베딩 키 추가 후)",
       "editDoc": "수정",
@@ -2690,14 +2686,7 @@
         "titleContentRequired": "제목과 내용은 필수입니다",
         "saveDocFailed": "문서를 저장하지 못했습니다",
         "savedIndexFailed": "저장되었지만 의미 기반 색인에 실패했습니다({message}). 키워드 검색은 계속 작동합니다. 재색인을 사용해 다시 시도하세요.",
-        "savedKeywordOnly": "키워드 검색만으로 저장되었습니다 — 임베딩 키를 복호화할 수 없습니다(ENCRYPTION_KEY를 확인한 후 키를 다시 입력하세요).",
-        "invalidFormData": "잘못된 양식 데이터입니다.",
-        "noFileProvided": "제공된 파일이 없습니다.",
-        "fileTooLarge": "파일이 너무 큽니다(최대 20MB).",
-        "pdfParseFailed": "PDF 문서를 구문 분석하지 못했습니다.",
-        "textReadFailed": "텍스트 파일을 읽지 못했습니다.",
-        "unsupportedFileType": "지원되지 않는 파일 형식입니다. PDF, TXT, MD 또는 CSV 파일을 업로드하세요.",
-        "noReadableText": "이 파일에서 읽을 수 있는 텍스트를 찾을 수 없습니다. 스캔된 문서인 경우 텍스트를 직접 붙여넣으세요."
+        "savedKeywordOnly": "키워드 검색만으로 저장되었습니다 — 임베딩 키를 복호화할 수 없습니다(ENCRYPTION_KEY를 확인한 후 키를 다시 입력하세요)."
       }
     },
     "automations": {

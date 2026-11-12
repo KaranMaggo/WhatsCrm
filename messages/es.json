@@ -2064,10 +2064,6 @@
       "cancel": "Cancelar",
       "saveDoc": "Guardar documento",
       "addDoc": "Agregar documento",
-      "uploadPdf": "Subir PDF / Documento",
-      "uploadingPdf": "Extrayendo texto...",
-      "pdfUploadSuccess": "Texto extraído de {filename} ({pages} página(s)). Revise y guarde el documento.",
-      "importPdf": "Subir archivo para rellenar contenido",
       "reindex": "Reindexar",
       "reindexTooltip": "Volver a generar los embeddings de todos los documentos (p. ej. después de agregar una clave de embeddings)",
       "editDoc": "Editar",
@@ -2690,14 +2686,7 @@
         "titleContentRequired": "El título y el contenido son obligatorios",
         "saveDocFailed": "Error al guardar el documento",
         "savedIndexFailed": "Guardado, pero la indexación semántica falló ({message}). La búsqueda por palabras clave sigue funcionando; usa Reindexar para reintentar.",
-        "savedKeywordOnly": "Guardado solo con búsqueda por palabras clave: no se pudo descifrar tu clave de embeddings (revisa ENCRYPTION_KEY y vuelve a ingresar la clave).",
-        "invalidFormData": "Datos del formulario no válidos.",
-        "noFileProvided": "No se ha proporcionado ningún archivo.",
-        "fileTooLarge": "El archivo es demasiado grande (máximo 20 MB).",
-        "pdfParseFailed": "Error al analizar el documento PDF.",
-        "textReadFailed": "Error al leer el archivo de texto.",
-        "unsupportedFileType": "Formato de archivo no compatible. Suba un archivo PDF, TXT, MD o CSV.",
-        "noReadableText": "No se encontró texto legible en este archivo. Si es un documento escaneado, pegue el texto directamente."
+        "savedKeywordOnly": "Guardado solo con búsqueda por palabras clave: no se pudo descifrar tu clave de embeddings (revisa ENCRYPTION_KEY y vuelve a ingresar la clave)."
       }
     },
     "automations": {

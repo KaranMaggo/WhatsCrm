@@ -2064,10 +2064,6 @@
       "cancel": "Cancel",
       "saveDoc": "Save document",
       "addDoc": "Add document",
-      "uploadPdf": "Upload PDF / Document",
-      "uploadingPdf": "Extracting text...",
-      "pdfUploadSuccess": "Extracted text from {filename} ({pages} page(s)). Review and save your document.",
-      "importPdf": "Upload file to fill content",
       "reindex": "Reindex",
       "reindexTooltip": "Re-embed all documents (e.g. after adding an embeddings key)",
       "editDoc": "Edit",
@@ -2690,14 +2686,7 @@
         "titleContentRequired": "title and content are required",
         "saveDocFailed": "Failed to save document",
         "savedIndexFailed": "Saved, but semantic indexing failed ({message}). Lexical search still works; use Reindex to retry.",
-        "savedKeywordOnly": "Saved with keyword search only — your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key).",
-        "invalidFormData": "Invalid form data.",
-        "noFileProvided": "No file provided.",
-        "fileTooLarge": "File is too large (maximum 20 MB).",
-        "pdfParseFailed": "Failed to parse PDF document.",
-        "textReadFailed": "Failed to read text file.",
-        "unsupportedFileType": "Unsupported file format. Please upload a PDF, TXT, MD, or CSV file.",
-        "noReadableText": "No readable text found in this file. If this is a scanned document, please paste the text directly."
+        "savedKeywordOnly": "Saved with keyword search only — your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key)."
       }
     },
     "automations": {
