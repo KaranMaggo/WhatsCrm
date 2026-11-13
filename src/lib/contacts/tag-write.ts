@@ -19,10 +19,28 @@ interface ContactTagWriteInput {
   tagId: string;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function assertContactAndTagOwnership(
   db: SupabaseClient,
   input: ContactTagWriteInput
-): Promise<void> {
+): Promise<string> {
+  const isUuid = UUID_REGEX.test(input.tagId);
+
+  const tagQuery = isUuid
+    ? db
+        .from('tags')
+        .select('id')
+        .eq('id', input.tagId)
+        .eq('account_id', input.accountId)
+        .maybeSingle()
+    : db
+        .from('tags')
+        .select('id')
+        .eq('name', input.tagId)
+        .eq('account_id', input.accountId)
+        .maybeSingle();
+
   const [contactResult, tagResult] = await Promise.all([
     db
       .from('contacts')
@@ -30,12 +48,7 @@ async function assertContactAndTagOwnership(
       .eq('id', input.contactId)
       .eq('account_id', input.accountId)
       .maybeSingle(),
-    db
-      .from('tags')
-      .select('id')
-      .eq('id', input.tagId)
-      .eq('account_id', input.accountId)
-      .maybeSingle(),
+    tagQuery,
   ]);
 
   if (contactResult.error || tagResult.error) {
@@ -47,6 +60,8 @@ async function assertContactAndTagOwnership(
   if (!tagResult.data) {
     throw new ContactTagWriteError(t('tags.tagNotFound'), 404);
   }
+
+  return tagResult.data.id;
 }
 
 /**
@@ -58,11 +73,11 @@ export async function addContactTagIfAbsent(
   db: SupabaseClient,
   input: ContactTagWriteInput
 ): Promise<boolean> {
-  await assertContactAndTagOwnership(db, input);
+  const resolvedTagId = await assertContactAndTagOwnership(db, input);
 
   const { error } = await db
     .from('contact_tags')
-    .insert({ contact_id: input.contactId, tag_id: input.tagId })
+    .insert({ contact_id: input.contactId, tag_id: resolvedTagId })
     .select('id')
     .maybeSingle();
 
@@ -79,13 +94,13 @@ export async function removeContactTag(
   db: SupabaseClient,
   input: ContactTagWriteInput
 ): Promise<void> {
-  await assertContactAndTagOwnership(db, input);
+  const resolvedTagId = await assertContactAndTagOwnership(db, input);
 
   const { error } = await db
     .from('contact_tags')
     .delete()
     .eq('contact_id', input.contactId)
-    .eq('tag_id', input.tagId);
+    .eq('tag_id', resolvedTagId);
 
   if (error) {
     throw new ContactTagWriteError(
