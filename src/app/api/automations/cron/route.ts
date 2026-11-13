@@ -15,19 +15,51 @@ import type { AutomationContext } from '@/lib/automations/engine'
  * only; expensive SELECT ... FOR UPDATE is avoided in favor of a
  * two-step UPDATE-by-id.
  */
-export async function GET(request: Request) {
-  const expected = process.env.AUTOMATION_CRON_SECRET
-  if (!expected) {
-    return NextResponse.json({ error: 'cron not configured' }, { status: 503 })
+function isCronAuthorized(request: Request): boolean {
+  const secrets = [
+    process.env.AUTOMATION_CRON_SECRET,
+    process.env.CRON_SECRET,
+  ].filter(Boolean) as string[];
+
+  if (secrets.length === 0) {
+    return false;
   }
-  const supplied = request.headers.get('x-cron-secret') ?? ''
-  const suppliedBuf = Buffer.from(supplied)
-  const expectedBuf = Buffer.from(expected)
-  if (
-    suppliedBuf.length !== expectedBuf.length ||
-    !timingSafeEqual(suppliedBuf, expectedBuf)
-  ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Check Bearer token (Vercel native cron)
+  const authHeader = request.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    for (const s of secrets) {
+      if (timingSafeCompare(token, s)) return true;
+    }
+  }
+
+  // Check x-cron-secret header (external pingers)
+  const xSecret = request.headers.get('x-cron-secret');
+  if (xSecret) {
+    for (const s of secrets) {
+      if (timingSafeCompare(xSecret, s)) return true;
+    }
+  }
+
+  return false;
+}
+
+function timingSafeCompare(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
+export async function GET(request: Request) {
+  const secrets = [process.env.AUTOMATION_CRON_SECRET, process.env.CRON_SECRET].filter(Boolean);
+  if (secrets.length === 0) {
+    return NextResponse.json({ error: 'cron not configured' }, { status: 503 });
+  }
+
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   // Close out wait_for_reply runs whose 24h reply window lapsed. The
