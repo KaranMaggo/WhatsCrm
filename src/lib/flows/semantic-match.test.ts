@@ -26,10 +26,9 @@ describe("semantic-match", () => {
         { reply_id: "btn_3", title: "Body", next_node_key: "node_body" },
       ],
     },
-    ui_position_x: 0,
-    ui_position_y: 0,
+    position_x: 0,
+    position_y: 0,
     created_at: "",
-    updated_at: "",
   };
 
   const sampleOptions: FlowStepOption[] = [
