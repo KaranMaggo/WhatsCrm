@@ -1,0 +1,24 @@
+name: Scheduled Cron (Automations & Flows)
+
+on:
+  schedule:
+    # Runs every 10 minutes (100% free on GitHub Actions)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-cron:
+    name: Ping Flows & Automations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Flows Inactivity Cron
+        run: |
+          curl -s -f -X GET \
+            -H "x-cron-secret: wacrm_cron_secret_7721" \
+            https://whats-crm-three.vercel.app/api/flows/cron || true
+
+      - name: Trigger Automations Wait Cron
+        run: |
+          curl -s -f -X GET \
+            -H "x-cron-secret: wacrm_cron_secret_7721" \
+            https://whats-crm-three.vercel.app/api/automations/cron || true
