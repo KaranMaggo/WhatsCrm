@@ -43,8 +43,10 @@ import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import {
   extractStepOptions,
   extractStepPrompt,
+  extractOptionsFromPromptText,
   matchLiteralOption,
   evaluateSemanticStepMatch,
+  evaluateSemanticCondition,
 } from "./semantic-match";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
@@ -871,11 +873,39 @@ async function evaluateConditionNode(
     const raw = (data as Record<string, unknown> | null)?.[cfg.subject_key];
     subjectValue = typeof raw === "string" && raw.length > 0 ? raw : undefined;
   }
-  return evaluateConditionPredicate({
+  const literalResult = evaluateConditionPredicate({
     operator: cfg.operator,
     subjectValue,
     configValue: cfg.value,
   });
+  if (literalResult) return true;
+
+  // AI semantic lookup fallback for equals / contains predicates:
+  if (
+    !literalResult &&
+    (cfg.operator === "equals" || cfg.operator === "contains") &&
+    subjectValue &&
+    cfg.value
+  ) {
+    try {
+      const aiConfig = await loadAiConfig(db, run.account_id, {
+        requireActive: false,
+      });
+      if (aiConfig?.apiKey) {
+        const semanticMatch = await evaluateSemanticCondition({
+          aiConfig,
+          subjectKey: cfg.subject_key,
+          subjectValue,
+          targetValue: cfg.value,
+        });
+        if (semanticMatch) return true;
+      }
+    } catch (semErr) {
+      console.error("[flows] condition semantic check error:", semErr);
+    }
+  }
+
+  return false;
 }
 
 
@@ -1707,6 +1737,7 @@ async function handleReplyForActiveRun(
 
     // If customer asked a question rather than answering, check AI
     let isOffTopicQuestion = false;
+    let normalizedValue = replyText;
     if (message.kind === "text" && replyText.length > 0) {
       try {
         const aiConfig = await loadAiConfig(db, run.account_id, {
@@ -1714,14 +1745,17 @@ async function handleReplyForActiveRun(
         });
         if (aiConfig?.apiKey) {
           const stepPrompt = extractStepPrompt(currentNode);
+          const stepOptions = extractStepOptions(currentNode);
           const semantic = await evaluateSemanticStepMatch({
             aiConfig,
             stepPrompt,
-            options: [],
+            options: stepOptions,
             customerReply: replyText,
           });
           if (semantic.is_question_or_inquiry && !semantic.is_relevant_answer) {
             isOffTopicQuestion = true;
+          } else if (semantic.is_relevant_answer && semantic.inferred_value) {
+            normalizedValue = semantic.inferred_value;
           }
         }
       } catch (err) {
@@ -1731,7 +1765,11 @@ async function handleReplyForActiveRun(
 
     if (!isOffTopicQuestion) {
       if (cfg.var_key && replyText) {
-        const newVars = { ...run.vars, [cfg.var_key]: replyText };
+        const newVars = {
+          ...run.vars,
+          [cfg.var_key]: normalizedValue,
+          [`${cfg.var_key}_raw`]: replyText,
+        };
         const { error: capErr } = await db
           .from("flow_runs")
           .update({
@@ -1744,7 +1782,8 @@ async function handleReplyForActiveRun(
           run.reprompt_count = 0;
           await logEvent(db, run.id, "node_entered", currentNode.node_key, {
             captured_key: cfg.var_key,
-            captured_length: replyText.length,
+            captured_length: normalizedValue.length,
+            inferred_value: normalizedValue,
           });
         }
       }

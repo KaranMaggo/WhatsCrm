@@ -2,8 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import {
   extractStepOptions,
   extractStepPrompt,
+  extractOptionsFromPromptText,
   matchLiteralOption,
   evaluateSemanticStepMatch,
+  evaluateSemanticCondition,
   type FlowStepOption,
 } from "./semantic-match";
 import type { FlowNodeRow } from "./types";
@@ -151,6 +153,83 @@ describe("semantic-match", () => {
       expect(result.is_relevant_answer).toBe(false);
       expect(result.matched_option).toBeNull();
       expect(result.is_question_or_inquiry).toBe(true);
+    });
+  });
+
+  describe("extractOptionsFromPromptText", () => {
+    it("extracts numbered options from prompt text", () => {
+      const prompt = `Hi Karan, we are the ONLY British and American-owned clinic abroad.
+
+Step 1 - Are you looking for
+
+1 - Face
+2 - Body
+3 - Breasts
+
+Reply STOP at any time to unsubscribe.`;
+
+      const options = extractOptionsFromPromptText(prompt);
+      expect(options).toHaveLength(3);
+      expect(options[0].title).toBe("1 - Face");
+      expect(options[1].title).toBe("2 - Body");
+      expect(options[2].title).toBe("3 - Breasts");
+    });
+  });
+
+  describe("evaluateSemanticCondition", () => {
+    const dummyAiConfig: AiConfig = {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      apiKey: "sk-test",
+      baseUrl: null,
+      systemPrompt: null,
+      isActive: true,
+      autoReplyEnabled: true,
+      autoReplyMaxPerConversation: 10,
+      handoffAgentId: null,
+      embeddingsApiKey: null,
+    };
+
+    it("evaluates 'Tummy tuck' as matching '2 - Body'", async () => {
+      vi.spyOn(generateModule, "generateReply").mockResolvedValueOnce({
+        text: JSON.stringify({
+          matches: true,
+          confidence: "high",
+          reason: "Tummy tuck is an abdominoplasty procedure belonging to Body surgery",
+        }),
+        handoff: false,
+        usage: null,
+      });
+
+      const matched = await evaluateSemanticCondition({
+        aiConfig: dummyAiConfig,
+        subjectKey: "Surgery_type",
+        subjectValue: "Tummy tuck",
+        targetValue: "2 - Body",
+      });
+
+      expect(matched).toBe(true);
+    });
+
+    it("evaluates 'Tummy tuck' as NOT matching '1 - Face'", async () => {
+      vi.spyOn(generateModule, "generateReply").mockResolvedValueOnce({
+        text: JSON.stringify({
+          matches: false,
+          confidence: "high",
+          reason: "Tummy tuck is not a facial procedure",
+        }),
+        handoff: false,
+        usage: null,
+      });
+
+      const matched = await evaluateSemanticCondition({
+        aiConfig: dummyAiConfig,
+        subjectKey: "Surgery_type",
+        subjectValue: "Tummy tuck",
+        targetValue: "1 - Face",
+      });
+
+      expect(matched).toBe(false);
     });
   });
 });
