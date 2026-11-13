@@ -138,7 +138,7 @@ export async function GET() {
         .eq('account_id', accountId)
         .maybeSingle()
       if (!fallback.error) {
-        config = fallback.data as any
+        config = fallback.data as unknown as typeof config
         configError = null
       }
     }
@@ -219,7 +219,7 @@ export async function GET() {
     if (config.waba_id) {
       try {
         const subs = await getSubscribedApps({ wabaId: config.waba_id, accessToken })
-        const targetAppId = (config as any)?.app_id || process.env.META_APP_ID
+        const targetAppId = (config as { app_id?: string } | null)?.app_id || process.env.META_APP_ID
         const state = appSubscriptionState(subs, targetAppId)
         wabaSubscription = {
           checked: true,
@@ -241,8 +241,8 @@ export async function GET() {
       connected: true,
       phone_info: phoneInfo,
       waba_subscription: wabaSubscription,
-      app_id: (config as any)?.app_id || null,
-      has_app_secret: !!(config as any)?.app_secret,
+      app_id: (config as { app_id?: string } | null)?.app_id || null,
+      has_app_secret: !!(config as { app_secret?: string } | null)?.app_secret,
     })
   } catch (error) {
     console.error('Error in WhatsApp config GET:', error)
@@ -436,14 +436,14 @@ export async function POST(request: Request) {
         .eq('account_id', accountId)
         .maybeSingle()
       if (fallbackExisting.data) {
-        existing = fallbackExisting.data as any
+        existing = fallbackExisting.data as unknown as typeof existing
       }
     }
 
     // Encrypt sensitive tokens before storing
     let encryptedAccessToken: string
     let encryptedVerifyToken: string | null
-    let encryptedAppSecret: string | null = (existing as any)?.app_secret ?? null
+    let encryptedAppSecret: string | null = (existing as { app_secret?: string } | null)?.app_secret ?? null
     try {
       encryptedAccessToken = encrypt(access_token)
       encryptedVerifyToken = resolveVerifyTokenForSave(

@@ -63,7 +63,7 @@ export function resolveFallbackPolicy(
     followups: Array.isArray(r.followups)
       ? r.followups
           .filter((f) => f && typeof f === "object")
-          .map((f: any) => ({
+          .map((f) => ({
             delay_hours:
               typeof f.delay_hours === "number" && f.delay_hours > 0
                 ? f.delay_hours

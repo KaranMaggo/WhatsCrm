@@ -709,6 +709,8 @@ async function executeHandoff(
 
   const convUpdate: Record<string, unknown> = {
     status: "pending",
+    ai_autoreply_disabled: true,
+    ai_handoff_summary: cfg.note ?? "Handed off to agent from flow",
     updated_at: new Date().toISOString(),
   };
   if (cfg.assign_to) convUpdate.assigned_agent_id = cfg.assign_to;

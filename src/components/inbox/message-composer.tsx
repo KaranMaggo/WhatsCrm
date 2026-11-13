@@ -20,7 +20,6 @@ import {
   Loader2,
   Sparkles,
   Plus,
-  MessageSquareDashed,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,8 +28,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -423,27 +420,6 @@ export function MessageComposer({
     [contact, openInteractiveBuilder, adjustHeight],
   );
 
-  const insertVariable = useCallback(
-    (token: string) => {
-      const resolved = contact ? interpolateContactText(token, contact) : token;
-      const toInsert = resolved || token;
-      setText((prev) => {
-        const el = textareaRef.current;
-        if (el && typeof el.selectionStart === "number") {
-          const start = el.selectionStart;
-          const end = el.selectionEnd;
-          return prev.slice(0, start) + toInsert + prev.slice(end);
-        }
-        return prev && !/\s$/.test(prev) ? `${prev} ${toInsert}` : `${prev}${toInsert}`;
-      });
-      requestAnimationFrame(() => {
-        adjustHeight();
-        textareaRef.current?.focus();
-      });
-    },
-    [contact, adjustHeight],
-  );
-
   // Upload a captured file to chat-media and stage it as a draft.
   const stageUpload = useCallback(
     async (kind: ComposerMediaKind, file: File) => {
@@ -736,64 +712,18 @@ export function MessageComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* + menu — interactive messages + quick replies. Gated on the
-              24h window like free-form text (interactive requires it). */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              disabled={inputsDisabled}
-              title={
-                readOnly
-                  ? t("readOnlyTitle")
-                  : inputsDisabled
-                    ? undefined
-                    : t("moreActions")
-              }
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="border-border bg-popover">
-              <DropdownMenuItem onClick={() => openInteractiveBuilder()}>
-                <MessageSquareDashed className="mr-2 h-4 w-4" />
-                {t("interactiveMessage")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setQuickReplyOpen(true)}>
-                <Zap className="mr-2 h-4 w-4" />
-                {t("quickReplies")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[10px] uppercase font-semibold text-muted-foreground px-2 py-1">
-                {t("contactVariables")}
-              </DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => insertVariable("{{contact.name}}")}>
-                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
-                {t("insertName")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertVariable("{{contact.first_name}}")}>
-                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
-                {t("insertFirstName")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertVariable("{{contact.phone}}")}>
-                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
-                {t("insertPhone")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertVariable("{{contact.email}}")}>
-                <span className="font-mono text-xs mr-2 text-primary font-bold">{"{x}"}</span>
-                {t("insertEmail")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
+          {/* Quick replies button */}
           <GatedButton
             variant="ghost"
             size="sm"
             canAct={!readOnly}
             gateReason={tGate("reasons.sendMessages")}
-            title={readOnly ? undefined : t("sendTemplate")}
+            disabled={inputsDisabled}
+            title={readOnly ? undefined : t("quickReplies")}
             className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-            onClick={onOpenTemplates}
+            onClick={() => setQuickReplyOpen(true)}
           >
-            <LayoutTemplate className="h-4 w-4" />
+            <Plus className="h-4 w-4" />
           </GatedButton>
 
           <GatedButton
