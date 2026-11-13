@@ -932,6 +932,25 @@ async function endRun(
 // new current_node_key before returning.
 // ============================================================
 
+async function applyNodeDelay(
+  cfg: Record<string, unknown>,
+  isAutoAdvance = false,
+): Promise<void> {
+  if (process.env.NODE_ENV === "test" && !cfg.delay_seconds) {
+    return;
+  }
+  let sec =
+    typeof cfg.delay_seconds === "number" && cfg.delay_seconds > 0
+      ? Math.min(10, cfg.delay_seconds)
+      : 0;
+  if (sec === 0 && isAutoAdvance && process.env.NODE_ENV !== "test") {
+    sec = 1.5;
+  }
+  if (sec > 0) {
+    await new Promise((resolve) => setTimeout(resolve, sec * 1000));
+  }
+}
+
 async function advanceFromNodeKey(
   db: AdminClient,
   run: FlowRunRow,
@@ -963,12 +982,15 @@ async function advanceFromNodeKey(
       node_type: node.node_type,
     });
 
+    const isAutoAdvance = safety > 0;
+
     if (node.node_type === "start") {
       currentKey = (node.config as unknown as StartNodeConfig).next_node_key;
       continue;
     }
     if (node.node_type === "send_message") {
       const cfg = node.config as unknown as SendMessageNodeConfig;
+      await applyNodeDelay(cfg as unknown as Record<string, unknown>, isAutoAdvance);
       try {
         const { whatsapp_message_id } = await engineSendText({
           accountId: run.account_id,
@@ -1009,6 +1031,7 @@ async function advanceFromNodeKey(
     }
     if (node.node_type === "send_media") {
       const cfg = node.config as unknown as SendMediaNodeConfig;
+      await applyNodeDelay(cfg as unknown as Record<string, unknown>, isAutoAdvance);
       try {
         const { whatsapp_message_id } = await engineSendMedia({
           accountId: run.account_id,
@@ -1157,13 +1180,7 @@ async function advanceFromNodeKey(
       continue;
     }
     if (node.node_type === "send_buttons") {
-      // Same failure contract as send_message / send_media /
-      // collect_input above: log + fail the run. Previously an
-      // exception here (Meta error, or meta-api's length validation —
-      // now reachable via interpolation, see sendButtonsAndSuspend)
-      // escaped to dispatchInboundToFlows' catch, which only
-      // console.error'd and left the run active + stuck on the prior
-      // node with nothing in flow_run_events.
+      await applyNodeDelay(node.config as unknown as Record<string, unknown>, isAutoAdvance);
       try {
         await sendButtonsAndSuspend(db, run, node, contactVars);
       } catch (err) {
@@ -1189,6 +1206,7 @@ async function advanceFromNodeKey(
       return { outcome: "advanced" };
     }
     if (node.node_type === "send_list") {
+      await applyNodeDelay(node.config as unknown as Record<string, unknown>, isAutoAdvance);
       try {
         await sendListAndSuspend(db, run, node, contactVars);
       } catch (err) {
@@ -1735,17 +1753,18 @@ async function handleReplyForActiveRun(
           ? message.reply_title?.trim() || message.reply_id
           : "";
 
-    // If customer asked a question rather than answering, check AI
+    // If customer asked a question rather than answering, or gave an off-option reply:
     let isOffTopicQuestion = false;
+    let isInvalidOptionReply = false;
     let normalizedValue = replyText;
     if (message.kind === "text" && replyText.length > 0) {
+      const stepOptions = extractStepOptions(currentNode);
       try {
         const aiConfig = await loadAiConfig(db, run.account_id, {
           requireActive: false,
         });
         if (aiConfig?.apiKey) {
           const stepPrompt = extractStepPrompt(currentNode);
-          const stepOptions = extractStepOptions(currentNode);
           const semantic = await evaluateSemanticStepMatch({
             aiConfig,
             stepPrompt,
@@ -1754,8 +1773,20 @@ async function handleReplyForActiveRun(
           });
           if (semantic.is_question_or_inquiry && !semantic.is_relevant_answer) {
             isOffTopicQuestion = true;
-          } else if (semantic.is_relevant_answer && semantic.inferred_value) {
-            normalizedValue = semantic.inferred_value;
+          } else if (semantic.is_relevant_answer) {
+            if (semantic.inferred_value) {
+              normalizedValue = semantic.inferred_value;
+            }
+          } else {
+            // The customer reply did not answer this step accordingly
+            isInvalidOptionReply = true;
+          }
+        } else if (stepOptions.length > 0) {
+          const literal = matchLiteralOption(replyText, stepOptions);
+          if (literal) {
+            normalizedValue = literal.title;
+          } else {
+            isInvalidOptionReply = true;
           }
         }
       } catch (err) {
@@ -1763,7 +1794,7 @@ async function handleReplyForActiveRun(
       }
     }
 
-    if (!isOffTopicQuestion) {
+    if (!isOffTopicQuestion && !isInvalidOptionReply) {
       if (cfg.var_key && replyText) {
         const newVars = {
           ...run.vars,
@@ -1915,18 +1946,17 @@ async function repromptCurrentNode(
     (currentNode.config as unknown as SendMediaNodeConfig).wait_for_reply
   ) {
     const cfg = currentNode.config as unknown as SendMediaNodeConfig;
-    await engineSendMedia({
-      accountId: run.account_id,
-      userId: run.user_id,
-      conversationId: run.conversation_id!,
-      contactId: run.contact_id!,
-      kind: cfg.media_type,
-      link: cfg.media_url,
-      caption: cfg.caption
-        ? interpolateVars(cfg.caption, run.vars, contactVars)
-        : undefined,
-      filename: cfg.filename,
-    });
+    // When re-prompting a media node, sending the video/image again is slow and spammy.
+    // Send the caption text to re-prompt smoothly.
+    if (cfg.caption) {
+      await engineSendText({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        text: interpolateVars(cfg.caption, run.vars, contactVars),
+      });
+    }
   }
 }
 
@@ -1967,12 +1997,18 @@ async function handleAiFallback(
   const stepOptions = extractStepOptions(currentNode);
   const optionsText =
     stepOptions.length > 0
-      ? `\nAvailable options at this step:\n${stepOptions.map((o, i) => `${i + 1}. ${o.title}`).join("\n")}`
+      ? `\nAvailable options at this step:\n${stepOptions.map((o, i) => `${i + 1} - ${o.title}`).join("\n")}`
       : "";
 
   const customPrompt = policy.ai_fallback_prompt?.trim() || aiConfig.systemPrompt || "";
   const systemPrompt = buildSystemPrompt({
-    userPrompt: `${customPrompt}\n\nIMPORTANT CONTEXT: The customer is currently in an active WhatsApp flow at this step: "${stepPrompt}".${optionsText}\nThe customer asked a question or sent a message instead of completing the step. Answer their question clearly, warmly, and concisely (1-2 sentences) using the provided business knowledge. Then politely remind them to answer the step question to continue.`,
+    userPrompt: `${customPrompt}\n\n` +
+      `IMPORTANT CONTEXT: The customer is currently in an active WhatsApp flow at this step: "${stepPrompt}".${optionsText}\n` +
+      `Customer message: "${query}".\n\n` +
+      `YOUR INSTRUCTIONS:\n` +
+      `1. If the customer asked a question or expressed concern, answer warmly and concisely (1-2 sentences) using the business knowledge.\n` +
+      `2. If their message did not answer the step, politely and warmly remind them what to do next to continue (e.g. choose an option from the list, or select a consultation time slot).\n` +
+      `3. Be human, empathetic, warm, and professional (like Ashley, their personal clinic coordinator). Never say you are an AI or bot. Keep your total reply under 3 sentences.`,
     mode: "auto_reply",
     knowledge,
   });
@@ -2019,7 +2055,12 @@ async function handleAiFallback(
   }
 
   if (policy.ai_fallback_resend_prompt !== false) {
-    await repromptCurrentNode(db, run, currentNode, contactVars);
+    if (
+      currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list"
+    ) {
+      await repromptCurrentNode(db, run, currentNode, contactVars);
+    }
   }
 }
 

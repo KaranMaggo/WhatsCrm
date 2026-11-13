@@ -216,14 +216,15 @@ export async function evaluateSemanticStepMatch(
       : "No fixed options. The step asked for open text response.";
 
   const systemPrompt = `You are an intelligent conversation classifier for a WhatsApp business assistant.
-The business asked a question at a specific step in a workflow.
+The business asked a question or gave an instruction at a specific step in a workflow.
 Your job is to determine whether the customer's reply is:
-1) Answering the question / choosing one of the available options (even if phrased in their own words, colloquial slang, or specifying a specific procedure/service/item that belongs to an option).
-   Example: If options are "1. Face or Neck", "2. Breast", "3. Body", and the customer says "Tummy tuck" or "Lipo", that answers option 3 ("Body"). If they say "Rhinoplasty" or "Nose", that answers option 1 ("Face or Neck").
-2) Asking a question or inquiry (e.g. asking about prices, doctor credentials, clinic address/location, discounts, timing, financing, etc.).
-3) Unrelated or gibberish.
+1) Answering the question, choosing an option, or confirming an action (e.g. "Booked", "Done", "Yes", "Confirmed", "Tuesday 2pm", "Tummy tuck", "Rhinoplasty", "1", "2").
+   - If options were provided (e.g. Face, Breast, Body) and the customer names a specific procedure or area (e.g. "Tummy tuck", "Lipo", "Nose", "Implants"), map it to the corresponding option.
+   - If the step asks the customer to take an action (e.g. "Pick a time slot for your consultation") and the customer confirms (e.g. "Booked", "Done", "Yes", "All set", "Confirmed"), set is_relevant_answer: true.
+2) Asking a question or expressing an inquiry/concern (e.g. asking about prices, costs, location, surgeon credentials, travel, timing, financing, recovery, etc.).
+3) Unrelated, off-topic, or unclear reply that does not answer the step.
 
-STEP QUESTION ASKED TO CUSTOMER:
+STEP PROMPT / INSTRUCTION ASKED TO CUSTOMER:
 "${stepPrompt || "Choose an option"}"
 
 AVAILABLE OPTIONS:
@@ -239,8 +240,9 @@ Respond ONLY with a JSON object in this exact format:
 }
 Rules:
 - matched_option_index MUST be 0-based (0 for option 1, 1 for option 2, 2 for option 3, etc.) or null if no option matches.
-- If customer is asking a question (even if it mentions a treatment, like "How much does a tummy tuck cost?"), set is_relevant_answer: false and is_question_or_inquiry: true.
-- If customer is simply stating what they want (e.g. "Tummy tuck", "I want teeth whitening", "Option 2"), set is_relevant_answer: true, match the option index, and is_question_or_inquiry: false.`;
+- If customer is asking a question (even if it mentions a treatment, like "How much does a tummy tuck cost?" or "Do you have weekend slots?"), set is_relevant_answer: false and is_question_or_inquiry: true.
+- If customer is answering what was requested (e.g. choosing a procedure, confirming they booked, or selecting an option), set is_relevant_answer: true, match the option index (or null if open response), and is_question_or_inquiry: false.
+- If customer reply is completely off-topic or doesn't answer what was asked (e.g. "hello", "ok" when options are given, "who is this"), set is_relevant_answer: false and is_question_or_inquiry: false.`;
 
   try {
     const { text } = await generateReply({

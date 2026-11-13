@@ -39,6 +39,8 @@ export interface SendMessageNodeConfig {
   wait_for_reply?: boolean;
   /** Optional variable name in flow_runs.vars to store the customer's reply text. */
   var_key?: string;
+  /** Optional delay in seconds before sending this message (humanizes timing). */
+  delay_seconds?: number;
 }
 
 export interface SendButtonsNodeConfig {
@@ -55,6 +57,8 @@ export interface SendButtonsNodeConfig {
     /** node_key the runner advances to when this button is tapped. */
     next_node_key: string;
   }>;
+  /** Optional delay in seconds before sending this message (humanizes timing). */
+  delay_seconds?: number;
 }
 
 export interface SendListNodeConfig {
@@ -109,6 +113,8 @@ export interface SendMediaNodeConfig {
   wait_for_reply?: boolean;
   /** Optional variable name in flow_runs.vars to store the customer's reply text. */
   var_key?: string;
+  /** Optional delay in seconds before sending this message (humanizes timing). */
+  delay_seconds?: number;
 }
 
 export interface HandoffNodeConfig {
